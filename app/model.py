@@ -27,7 +27,7 @@ def _build_messages(prompt: str, image_path: str | Path | None) -> list[dict[str
 async def query_gemma(
     prompt: str,
     image_path: str | Path | None = None,
-    model: str = "local",
+    model: str = "cloud",
     thinking: bool = False,
     timeout: float = _DEFAULT_TIMEOUT,
 ) -> dict[str, Any]:

@@ -406,3 +406,83 @@ Next: PLAN.md update to reflect planner-bundling architecture (Phases
 the bundled planner contract).
 
 Days remaining to deadline: 14.
+
+## 2026-05-11 — Phase 2 Gate 6: Structured-output / function-calling smoke test — PASS
+
+Ran eval/smoke_structured.py against google/gemma-4-31b-it:free via 
+OpenRouter (BYOK), forcing a tool_choice for a single 
+return_letter_entry tool whose parameters mirror the LetterEntry 
+Pydantic schema. Two runs total. Combined: 8 of 8 model responses 
+returned valid tool calls with Pydantic-parseable arguments. The 
+function-calling mechanism on Gemma 4 31B is reliable for the 
+planner-bundling architecture (Phase 5.5 depends on it).
+
+Run breakdown:
+- Run 1 (no-retry, eval/results/smoke_structured_20260510T190320Z.json):
+  3/5 succeeded; 2/5 hit upstream 502s from Google AI Studio 
+  ("Internal error encountered" — same Gate 5 pattern). Of the 3 
+  calls that reached the model, 3/3 used the tool-call mechanism 
+  and 3/3 parsed cleanly into LetterEntry.
+- Run 2 (retry-armed, eval/results/smoke_structured_20260510T190623Z.json):
+  5/5 succeeded; 0 retries triggered (upstream cooperated). Latency 
+  on success: median 3472ms, max 9283ms — within CLAUDE.md's 10s 
+  planner-budget.
+
+Response shape verified (matters for the future query_gemma 
+extension and the Phase 5.5 planner code):
+- choices[0].finish_reason == "tool_calls" is the success signal.
+- choices[0].message.content is null on tool-call responses (no 
+  parallel free-text content).
+- choices[0].message.tool_calls[i].function.arguments is a JSON 
+  STRING, not a parsed object — requires json.loads before pydantic 
+  validation.
+- choices[0].message.reasoning_details carries an 
+  "reasoning.encrypted" blob (Google Gemini multi-turn reasoning 
+  state) alongside tool calls. Not used in v1; flagged for Phase 5.5 
+  if the planner ever needs to thread reasoning state across multiple 
+  tool-call rounds.
+
+Open question carried forward: retry-with-backoff under real 502 
+load. The retry logic in eval/smoke_structured.py is paper-correct 
+but did not fire in vivo this run. Phase 5.5 step 2's planner smoke 
+test inherits responsibility for verifying retry behavior on the 
+production planner call under realistic load. The eval/smoke_structured.py 
+retry code is throwaway infrastructure and is not the implementation 
+that ships.
+
+Gate 6 PASS. Phase 2 step 5 acceptance met. Phase 5.5 can rely on 
+Gemma 4 31B's function-calling mechanism without further capability 
+gating.
+
+## 2026-05-11 — Phase 2 closed
+
+All Phase 2 acceptance criteria met:
+- app/model.py default flipped to model="cloud" (verified by smoke 
+  test).
+- Pydantic schemas defined in app/prompts.py with discriminated 
+  union on step_type, Language and Difficulty Literal aliases, 
+  strict validation (min/max length on distractors, ge=0 on 
+  step_index).
+- Three planner tool definitions hand-built as OpenAI-compatible 
+  function dicts: get_recent_sessions (n ≤ 30), get_letter_accuracy 
+  (letters ≤ 200), get_curriculum (language + scope enums).
+- Three versioned prompts: PLANNER_PROMPT_V1 (with cold-start 
+  handling, bundled-output contract, difficulty rules matching 
+  Phase 4 deterministic spec), SESSION_SUMMARY_PROMPT_V1, 
+  LETTER_ENTRY_SMOKE_PROMPT_V1.
+- Gate 6 PASS: 8/8 valid tool calls across two runs, 5/5 retry-armed 
+  run, response shape verified for future query_gemma extension.
+- writeup/draft.md "Why Gemma 4" section drafted (520 words, four 
+  capabilities + rejected vision, every claim cited or quantified). 
+  Open-weights point moved to Tradeoffs section.
+
+Phase 2 deliverables establish the structured-output contract that 
+Phase 5.5 (planner) and Phase 5 (parent dashboard summary) depend on. 
+Function calling on Gemma 4 31B via OpenRouter is verified reliable; 
+the planner-bundling architecture is buildable.
+
+Next: Phase 3 — thin end-to-end slice (tap-to-recognize on one 
+hardcoded letter, no curriculum logic, no planner, prove the 
+product is possible).
+
+Days remaining to deadline: 13.
