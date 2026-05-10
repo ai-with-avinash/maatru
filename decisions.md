@@ -146,3 +146,139 @@ Local E4B generation observations from step 4 (median 28.9s, two
 Handwriting eval will produce the data that decides whether E4B 
 local can serve short structured outputs in acceptable latency, 
 or whether the kid loop must move to cloud.
+
+## 2026-05-10 — Phase 1 Gate 3: Telugu handwriting eval — FAIL (BOTH MODELS)
+
+Ran telugu_handwriting eval (20 prompts, 4 source tiers × 5 each: typed, 
+adult, child, similar). Results saved to 
+eval/results/telugu_handwriting_20260509T193642Z.json. Scorecard at 
+eval/results/handwriting_scorecard.md.
+
+Accuracy by tier (correct identifications / 5 samples each):
+
+| source  | local      | cloud       |
+|---------|------------|-------------|
+| typed   | 1/5 (20%)  | 1/5 (20%)   |
+| adult   | 0/5 (0%)   | 1/5 (20%)   |
+| child   | 0/5 (0%)   | 0/5 (0%)    |
+| similar | 0/5 (0%)   | 2/5 (40%)   |
+| overall | 1/20 (5%)  | 4/20 (20%)  |
+
+CLAUDE.md Gate 3 thresholds (typed+adult ≥80%, child ≥60%) failed by 
+60+ percentage points on both models. Local also had 3 hard timeouts 
+(>60s) on a workload (short structured JSON output) that should have 
+been the easier case.
+
+This is not a "kid handwriting is hard" failure mode. Both models 
+failed on TYPED REFERENCE — perfectly rendered Telugu characters on 
+white background, the gimme tier of the eval. Two independent 
+inference paths (Ollama local on M4 + OpenRouter→Google AI Studio→
+Gemma 4 31B) both produced wrong-but-confident outputs (e.g., అ read 
+as ని locally and as ౦ on cloud). Independent paths producing 
+wrong-but-coherent outputs is the signature of a model knowledge gap 
+on Telugu vision, not infrastructure or input-pipeline issues.
+
+Spot-checked alternative explanations:
+- Image encoding: ruled out. The MIME detection in app/model.py 
+  correctly handles JPEG/PNG/HEIF; cloud got 4/20 correct including 
+  2 of the genuinely-similar pairs, which means input is reaching the 
+  model legibly. Encoding errors would produce uniform failure, not 
+  the observed graduated-but-bad pattern.
+- API throttling / quality degradation: ruled out. Cloud providers 
+  don't quietly degrade output quality, and local E4B is running 
+  entirely on-device with no external dependency. Anthropic Claude 
+  Code session limits are unrelated to OpenRouter or Ollama.
+- Cold-start / warm-up: ruled out. Warm-up call was added to runner 
+  before the timed loop. Latencies stabilized after warm-up; the 
+  accuracy problem persists across all 20 samples.
+
+Conclusion: Gemma 4's vision capability does not currently read Telugu 
+script reliably enough to be the foundation of a literacy product. 
+This is a model training-data limitation, not a fixable engineering 
+bug.
+
+## 2026-05-10 — Architectural pivot: drop vision, keep mission (Option A)
+
+In response to the Gate 3 failure, considered three options:
+- (A) Drop vision-as-input from the kid loop. Keep the Telugu 
+  literacy mission and the parent dashboard. Replace the 
+  "write→photograph→feedback" interaction with audio-based 
+  (read-aloud) and tap-based (multiple-choice recognition) 
+  interactions that don't depend on Gemma 4 reading Telugu script.
+- (B) Ship the broken vision feature as a negative-result writeup. 
+  Rejected: contest judges score on effective use of the model; 
+  negative results don't win the Build track.
+- (C) Pivot to Hindi (Devanagari) where Gemma 4's vision may 
+  perform better. Rejected: would lose the Hyderabad/Telugu 
+  authenticity narrative which is the strongest emotional hook, 
+  and Hindi vision performance is unverified — could fail the 
+  same way and burn another half-day.
+
+Decision: Option A. The mission ("kids losing their mother tongue 
+because parents can't teach the script") is intact regardless of 
+input modality. The strongest features of the original design — 
+the parent dashboard with English summaries, the agentic session 
+planner, the personal hook — all carry forward unchanged. Most of 
+the existing infrastructure (model abstraction, eval harness, 
+Telugu generation gate, decisions log) reuses directly. The 
+architectural split (deterministic kid loop, agentic planner) 
+also reuses; only the kid loop's input modality changes.
+
+New v1 product shape:
+- Kid sees a Telugu letter on screen with English transliteration.
+- Audio plays the letter pronunciation (Google TTS, Gate 4 to 
+  validate).
+- Kid taps among 4 options to identify the letter they just heard 
+  (Interaction 2: tap-to-recognize). This is the v1 core loop — 
+  pure UI, no vision, no STT, ships fast.
+- Optional Phase 6: if time permits, add Interaction 1 — kid reads 
+  the letter or word aloud, audio captured and evaluated via 
+  Google Cloud Speech-to-Text + Gemma 4 comparing transcription to 
+  expected. Defer to v2 if Phase 6 gets cut.
+
+What Gemma 4 does in the new design (still substantive):
+- Generates curriculum content: letter sets, distractor options 
+  for multiple-choice, simple words, rhymes (Gate 2 PASS confirms 
+  this works).
+- Runs the agentic session planner at session boundaries (Phase 
+  5.5 unchanged — the planner is text-and-tool-calling, no vision).
+- Produces parent dashboard English summaries from session data.
+- Adapts difficulty based on kid's progress history (256K context 
+  holds full history in a single call).
+
+What changes in CLAUDE.md / PLAN.md:
+- "Why Gemma 4" section: drop the multimodal-vision claim. Replace 
+  with multilingual generation, function calling for structured 
+  outputs, 256K context for stateless session reasoning, configurable 
+  thinking mode for the planner, open weights for local generation 
+  if desired in v2.
+- V1 Scope: replace "Kid writes the letter on paper, photographs, 
+  Gemma 4 evaluates" with "Kid taps the matching letter from 4 
+  options after hearing it pronounced."
+- Non-Goals: photo-feedback explicitly out of v1; vision-based 
+  features are v2+.
+- Phase 3 (thin slice): tap-to-recognize end-to-end on one letter 
+  set, no vision pipeline.
+- Phase 4-5: deepen the recognition loop and parent dashboard 
+  unchanged in spirit, just no vision.
+- Phase 5.5 planner: unchanged — was always text-and-tool-calling.
+- Phase 6: read-aloud track as optional add (was Hindi 
+  generalization; now read-aloud).
+- Writeup framing: "I tried photo-feedback first, hit a model 
+  capability boundary, pivoted to a design that uses Gemma 4 
+  where it actually shines (multilingual generation + agentic 
+  reasoning) instead of where the spec sheet promised it would 
+  (Indic-script vision)." This honest engineering judgment IS 
+  the architectural story for the writeup.
+
+Lesson carrying forward: model spec sheets are claims to be 
+tested, not facts. Day-1 evals saved 12 days of building on a 
+broken foundation. The same discipline applies to remaining 
+Gemma 4 capability claims (function calling reliability, 
+thinking mode quality, 256K context utility) — verify with a 
+small smoke test before integrating, not after.
+
+Phase 1 step 10 (OpenRouter rate-limit stress test) and step 11 
+(Gate 4 TTS quality check) still pending. Both apply unchanged 
+to the new design. Resume after CLAUDE.md and PLAN.md are 
+updated.
