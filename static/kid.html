@@ -1,15 +1,156 @@
 <!doctype html>
-<!-- Phase 3: backend-ready landing page. Full kid UI lands in subsequent steps. -->
+<!-- Phase 3 kid loop: hardcoded target అ + 3 distractors, one tap per round.
+     Feedback strings come from /api/check_recognition (Phase 3 hardcoded pool;
+     Phase 5.5 replaces with per-step FeedbackVariants from the planner). -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Maatru</title>
     <style>
-      body { font-family: system-ui, -apple-system, sans-serif; margin: 4rem; }
-      h1 { font-size: 2rem; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #fff5ec;
+        color: #2d2d2d;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        padding: 2rem 1rem;
+      }
+      .container {
+        max-width: 480px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      .target-card {
+        text-align: center;
+        padding: 2rem 1rem;
+        background: #ffffff;
+        border-radius: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      }
+      .target-glyph { font-size: 6rem; font-weight: 700; line-height: 1; }
+      .target-translit { font-size: 2rem; color: #7a7a7a; font-style: italic; margin-top: 0.5rem; }
+      .hear-button {
+        background: #ff7a59;
+        color: white;
+        font-size: 1.25rem;
+        padding: 1rem 1.5rem;
+        border: none;
+        border-radius: 0.75rem;
+        cursor: pointer;
+        min-height: 60px;
+      }
+      .hear-button:disabled { background: #f0bda9; cursor: default; }
+      .options { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .option {
+        font-size: 3rem;
+        padding: 1.25rem;
+        background: white;
+        border: 3px solid #e0d4c4;
+        border-radius: 1rem;
+        cursor: pointer;
+        min-height: 80px;
+      }
+      .option:hover:not(:disabled) { background: #fff9f3; }
+      .option:disabled { cursor: default; opacity: 0.7; }
+      .option.correct { border-color: #4caf50; background: #e8f5e9; }
+      .option.wrong { border-color: #e53935; background: #fbeaea; }
+      .feedback { text-align: center; font-size: 1.5rem; min-height: 2rem; }
+      .completion { text-align: center; font-size: 1rem; color: #7a7a7a; }
     </style>
   </head>
   <body>
-    <h1>Maatru — Phase 3 backend ready</h1>
+    <main class="container">
+      <section class="target-card">
+        <div class="target-glyph">అ</div>
+        <div class="target-translit">a</div>
+      </section>
+      <button id="hear-button" type="button" class="hear-button">Hear it</button>
+      <audio id="audio-player" hidden></audio>
+      <section class="options" id="options" aria-label="Letter options"></section>
+      <div id="feedback" class="feedback" aria-live="polite"></div>
+      <div id="completion" class="completion" hidden>You completed the loop! Reload to try again.</div>
+    </main>
+    <script>
+      const TARGET = "అ";
+      const DISTRACTORS = ["ఆ", "ఇ", "క"];
+
+      const optionsEl = document.getElementById("options");
+      const feedbackEl = document.getElementById("feedback");
+      const completionEl = document.getElementById("completion");
+      const hearBtn = document.getElementById("hear-button");
+      const audioEl = document.getElementById("audio-player");
+
+      let answered = false;
+
+      function shuffle(arr) {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }
+
+      function renderOptions() {
+        for (const letter of shuffle([TARGET, ...DISTRACTORS])) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "option";
+          btn.textContent = letter;
+          btn.addEventListener("click", () => handleChoice(letter, btn));
+          optionsEl.appendChild(btn);
+        }
+      }
+
+      async function handleHear() {
+        if (hearBtn.disabled) return;
+        hearBtn.disabled = true;
+        try {
+          const r = await fetch("/api/pronounce", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ character: TARGET, language: "te" }),
+          });
+          if (!r.ok) throw new Error("TTS HTTP " + r.status);
+          const blob = await r.blob();
+          audioEl.src = URL.createObjectURL(blob);
+          await audioEl.play();
+        } catch (err) {
+          feedbackEl.textContent = "Audio failed — " + err.message;
+        } finally {
+          setTimeout(() => { hearBtn.disabled = false; }, 1000);
+        }
+      }
+
+      async function handleChoice(chosen, btn) {
+        if (answered) return;
+        answered = true;
+        try {
+          const r = await fetch("/api/check_recognition", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: TARGET, chosen }),
+          });
+          if (!r.ok) throw new Error("check HTTP " + r.status);
+          const data = await r.json();
+          btn.classList.add(data.correct ? "correct" : "wrong");
+          feedbackEl.textContent = data.feedback;
+          for (const b of optionsEl.querySelectorAll("button")) b.disabled = true;
+          completionEl.hidden = false;
+        } catch (err) {
+          feedbackEl.textContent = "Check failed — " + err.message;
+          answered = false;
+        }
+      }
+
+      hearBtn.addEventListener("click", handleHear);
+      renderOptions();
+    </script>
   </body>
 </html>

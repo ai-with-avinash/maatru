@@ -486,3 +486,48 @@ hardcoded letter, no curriculum logic, no planner, prove the
 product is possible).
 
 Days remaining to deadline: 13.
+
+## 2026-05-11 — Phase 3 closed: thin end-to-end slice working
+
+The kid-loop thin slice runs end-to-end in the browser. Phase 3 
+acceptance criteria met: from page load to feedback display, no 
+manual steps between, no Gemma 4 calls during the loop, both
+correct and wrong paths verified visually.
+
+Files delivered:
+- app/tts.py (50 lines) — synthesize() over Google Cloud TTS, 
+  reads voice and speakingRate from .env per Gate 4 verdict.
+- app/main.py (~75 lines) — /healthz, GET /, POST /api/pronounce, 
+  POST /api/check_recognition. Hardcoded feedback pools 
+  (_PHASE3_POSITIVE, _PHASE3_RETRY) replaced in Phase 5.5 by 
+  per-step FeedbackVariants from the planner.
+- static/kid.html (~155 lines) — layout, vanilla JS state machine, 
+  Fisher-Yates shuffle on the 4 options, audio playback via 
+  hidden <audio> element, visual feedback (green/red border) on 
+  the tapped button.
+
+Verification:
+- TTS audio plays correct female Telugu (te-IN-Standard-A) on 
+  "Hear it" tap. MP3 byte-matches eval/tts_samples/vowel_A.mp3 
+  from Gate 4.
+- Correct tap (అ): green border, positive feedback ("Perfect!" / 
+  "Great!" / "Yes! That's అ" — randomization across reloads).
+- Wrong tap (ఆ): red border, retry feedback ("Try again — listen 
+  carefully" / "Not quite — listen for the sound").
+- Page reload reshuffles option order — button positions verified 
+  to vary across multiple loads.
+
+What this proves architecturally:
+- The bundling contract works in practice. The kid taps a button, 
+  /api/check_recognition returns a hardcoded feedback string, no 
+  Gemma 4 call occurs. When Phase 5.5 lands, the planner will 
+  populate per-step FeedbackVariants in the SessionPlan; the kid 
+  loop's contract stays identical, only the source of feedback 
+  strings changes.
+- Sub-second round-trip on tap, demonstrably faster than any 
+  Gemma-4-in-the-loop alternative would be (Gate 5 showed p95 
+  15.4s on Gemma 4 cloud calls).
+
+Next: Phase 4 — practice loop deepening (curriculum, full vowel 
+set, deterministic distractor selection from confusion_set, 
+session storage in SQLite, retry-on-wrong UX). Days remaining: 13.
