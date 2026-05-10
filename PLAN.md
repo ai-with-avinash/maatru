@@ -1,4 +1,4 @@
-# PLAN.md — Maatru Execution Plan (revised post-pivot)
+# PLAN.md — Maatru Execution Plan (revised post-pivot, planner-bundling architecture)
 
 **How to use this file:** Give Claude Code one phase at a time. Paste 
 the phase block as a session opener along with a reminder to read 
@@ -11,10 +11,11 @@ session.
 > scope and the explicit non-goals, then proceed step by step. Stop 
 > and ask if any step requires a product decision.
 
-**Project status as of 2026-05-10 (post-pivot):** Phase 0 complete. 
-Phase 1 partially complete — Gates 1 and 2 passed, Gate 3 failed and 
-triggered the pivot to Option A (drop vision, tap-to-recognize), 
-Gates 4 and 5 still pending. Days remaining to deadline: 14.
+**Project status as of 2026-05-10 evening (post-pivot, post-Phase 1.5):** 
+Phases 0, 1, 1.5 complete. Pivot from photo-feedback to tap-to-recognize 
+recorded. Free-tier reliability constraints (20 req/min, ~36% upstream 
+502s, p95 15s latency) addressed via planner-bundling architecture 
+captured in decisions.md 2026-05-10 entries. Days remaining to deadline: 14.
 
 ---
 
@@ -23,85 +24,63 @@ Original phase, completed 2026-05-09. See decisions.md.
 
 ---
 
-## Phase 1: Day-1 Evals — PARTIALLY COMPLETE
-Original phase, run 2026-05-09 to 2026-05-10.
-- Gate 1 (Ollama vision): PASSED — moot for v1 now.
+## Phase 1: Day-1 Evals — COMPLETE ✓
+Run 2026-05-09 to 2026-05-10. Final status:
+- Gate 1 (Ollama vision): PASSED — moot for v1 post-pivot.
 - Gate 2 (Telugu generation): PASSED.
 - Gate 3 (Telugu handwriting): FAILED — triggered pivot.
-- Gate 4 (TTS quality): pending; see Phase 1.5 below.
-- Gate 5 (OpenRouter rate limits): partially verified; see Phase 1.5.
+- Gate 4 (TTS quality): PASSED — te-IN-Standard-A voice chosen.
+- Gate 5 (OpenRouter rate limits): data captured, 20 req/min hard cap 
+  confirmed, mitigations specified.
 
 ---
 
-## Phase 1.5: Close out remaining Phase 1 gates (1-2 hours)
-
-**Goal:** Run the Phase 1 steps that don't depend on the failed Gate 3 — 
-TTS quality validation and OpenRouter rate-limit stress test. These 
-inform the writeup's tradeoffs section and confirm v1 infrastructure.
-
-**Steps:**
-1. **Gate 4 — TTS quality validation.** Generate Telugu audio samples 
-   for 5 prompts via Google Cloud TTS using both available Telugu 
-   voices (te-IN-Standard-A, te-IN-Standard-B). Prompts to synthesize: 
-   single vowel అ, single consonant క, simple greeting నమస్కారం, 
-   2-letter word అమ్మ, encouragement phrase చాలా బాగా. Save as MP3 in 
-   eval/results/tts_samples/. Have the Telugu reviewer rate each on 
-   pronunciation accuracy and child-appropriate naturalness 
-   (1-5 scale). Document the verdict and chosen voice in decisions.md.
-2. **Gate 5 — OpenRouter rate-limit stress test.** Write a small 
-   script eval/stress_openrouter.py that fires 50 sequential 
-   short-prompt requests to google/gemma-4-31b-it:free in a loop over 
-   2-3 minutes. Capture: total time, requests-per-minute, any 429 or 
-   other errors, error rate. Save output to 
-   eval/results/openrouter_ratelimit.txt. With BYOK already configured 
-   via personal Google AI Studio key, expectation is no 429s. If 429s 
-   appear, document threshold and add fallback to direct Google AI 
-   Studio API.
-3. **Append both gate results to decisions.md** with the dated format. 
-   Gate 4 verdict, chosen voice, sample paths. Gate 5 numbers 
-   (requests/min, error rate), implication for the writeup's 
-   reliability story.
-
-**Acceptance:** TTS voice chosen and documented. Rate-limit data 
-captured. decisions.md updated. Phase 1 formally closed.
-
-**Human-side action items:**
-- Telugu reviewer listens to 10 TTS samples (5 phrases × 2 voices), 
-  rates each, picks the better voice.
-- Update .env's TTS_VOICE if the reviewer prefers Standard-B over 
-  the default Standard-A.
+## Phase 1.5: Closeout — COMPLETE ✓
+Run 2026-05-10. TTS quality validated, rate-limit stress test 
+captured, BYOK correction noted, free-tier mitigation architecture 
+specified.
 
 ---
 
 ## Phase 2: Architecture and Schemas (revised, ~half-day)
 
 **Goal:** Update the model abstraction and prompt schemas to fit the 
-pivoted product. Most of app/model.py from the original Phase 2 still 
-applies; this phase adds the new Pydantic schemas for tap-to-recognize 
-and updates query_gemma if needed.
+pivoted product *and* the planner-bundling architecture from the 
+2026-05-10 mitigation entries. Most of app/model.py from yesterday 
+still applies; this phase adds new Pydantic schemas and verifies 
+function calling works before relying on it for real flows.
 
-**Note:** app/model.py was already implemented as 59 lines in the 
-original Phase 2. Verify it still meets the new requirements; do not 
-rewrite. The thinking parameter and structured-output handling are 
-already in place.
+**Note:** app/model.py was already implemented as 59 lines yesterday. 
+Verify it still meets the new requirements; do not rewrite. The 
+thinking parameter and structured-output handling are already in place.
 
 **Steps:**
 1. Verify app/model.py satisfies the new design:
    - Cloud path is the v1 default (model="cloud"). Already the case.
    - Image path support is retained for v2 hooks; not used in v1 flow.
    - Thinking mode opt-in works. Already verified.
-   - Function calling / structured output works. Verify with a smoke 
-     test using a trivial Pydantic schema before relying on it for 
-     real schemas. **This is the "test before integrating" lesson 
-     from Gate 3.**
-2. Define core Pydantic schemas in app/prompts.py (NEW for v2):
+   - Function calling / structured output works. Verify with the smoke 
+     test in step 5 below before relying on it for real schemas. 
+     **This is the "test before integrating" lesson from Gate 3.**
+2. Define core Pydantic schemas in app/prompts.py (NEW for v2). Note 
+   these reflect the planner-bundling architecture: the planner returns 
+   distractors and feedback variants embedded in each `RecognitionStep`, 
+   not just step skeletons.
    - `LetterEntry(character: str, transliteration: str, language: str)`
    - `LetterSet(language: str, theme: str, entries: list[LetterEntry])`
-   - `RecognitionStep(target: LetterEntry, distractors: list[LetterEntry], step_index: int)` — 
-     a single tap-to-recognize question with one correct letter and 3 distractors
-   - `RecognitionFeedback(correct: bool, encouragement: str, retry_hint: Optional[str])`
-   - `SessionStep(step_type: Literal["recognize_letter", "recognize_word", "read_aloud"], step_data: dict, target_skill: str, expected_difficulty: Literal["easy", "medium", "hard"])`
-   - `SessionPlan(session_id: str, language: str, focus: str, steps: list[SessionStep], reasoning: str, fallback_used: bool)`
+   - `FeedbackVariants(positive: list[str], retry: list[str])` — a 
+     small pool of encouragement strings (e.g., 3 positive + 2 retry), 
+     pre-generated by the planner, randomly assigned at kid-loop runtime
+   - `RecognitionStep(target: LetterEntry, distractors: list[LetterEntry], step_index: int, feedback: FeedbackVariants)` — 
+     a single tap-to-recognize question with one correct letter, 3 
+     distractor letters, and pre-generated feedback variants. The kid 
+     loop reads from this directly; no per-step Gemma 4 call.
+   - `SessionStep(step_type: Literal["recognize_letter", "recognize_word", "read_aloud"], step_data: dict, target_skill: str, expected_difficulty: Literal["easy", "medium", "hard"])` — 
+     wrapper for the polymorphic step types. step_data is a 
+     RecognitionStep for the recognize_* types.
+   - `SessionPlan(session_id: str, language: str, focus: str, steps: list[SessionStep], reasoning: str, fallback_used: bool)` — 
+     the full plan returned by the planner in its single call, 
+     containing all distractors and feedback variants for every step.
    - `SessionSummary(letters_practiced: list[str], strong_letters: list[str], needs_practice: list[str], suggested_next: list[str], parent_summary_english: str)`
 3. Define the planner's tool schemas (also in app/prompts.py):
    - `get_recent_sessions(n: int)` — returns recent session summaries.
@@ -112,8 +91,7 @@ already in place.
    These are SQLite reads only. No write capability.
 4. Define versioned prompt templates in app/prompts.py as Python 
    constants. Examples: 
-   `LETTER_RECOGNITION_DISTRACTORS_PROMPT_V1`, 
-   `RECOGNITION_FEEDBACK_PROMPT_V1`, 
+   `PLANNER_PROMPT_V1` (the agentic system prompt for the planner), 
    `SESSION_SUMMARY_PROMPT_V1`. When revised, increment version. Old 
    versions stay in the file commented out for reference.
 5. Smoke-test the structured-output capability with a trivial schema 
@@ -121,14 +99,17 @@ already in place.
    that asks Gemma 4 to return a `LetterEntry` for a known input ("the 
    Telugu letter ka") and validates the response parses correctly. 
    Document result in decisions.md. **This is the test-before-integrate 
-   discipline.**
+   discipline from the Gate 3 lesson.**
 6. Update writeup/draft.md "Why Gemma 4" section to remove vision claims 
    and emphasize multilingual generation, function calling, 256K 
    context, thinking mode for the planner. Cite Gate 2 PASS for 
-   generation reliability.
+   generation reliability and the planner-bundling design as the 
+   architectural answer to free-tier rate limits.
 
-**Acceptance:** Schemas defined. Prompts versioned. Smoke test passes 
-with structured output. Writeup draft updated.
+**Acceptance:** Schemas defined, including `RecognitionStep` carrying 
+distractors and `FeedbackVariants` per the bundling decision. Prompts 
+versioned. Smoke test passes with structured output. Writeup draft 
+updated.
 
 ---
 
@@ -139,87 +120,112 @@ end-to-end. Prove the product is possible.
 
 **Steps:**
 1. Hardcode the target letter as అ in this phase. No curriculum logic 
-   yet, no planner, no session storage.
+   yet, no planner, no session storage. Hardcode the 3 distractors 
+   too: ఆ, ఇ, క. Hardcode 2 feedback variants ("Yes! That's అ", "Try 
+   again — listen carefully").
 2. Implement static/kid.html: a single page that displays the letter అ 
    in large font, a button "Hear it" that calls a backend endpoint to 
-   play TTS, 4 option buttons below showing 4 Telugu letters (అ, ఆ, ఇ, 
-   క — three hardcoded distractors), a result area for feedback after 
-   tap.
+   play TTS, 4 option buttons below showing 4 Telugu letters (అ + 3 
+   distractors), a result area for feedback after tap.
 3. Implement backend endpoints:
    - `GET /` — serves kid.html.
    - `POST /api/pronounce` — body `{character: "అ", language: "te"}`, 
-     returns audio bytes from Google TTS.
+     returns audio bytes from Google TTS (te-IN-Standard-A, 
+     speakingRate 0.85 per Gate 4 verdict).
    - `POST /api/check_recognition` — body `{target: "అ", chosen: "ఆ"}`, 
-     calls query_gemma with the `RecognitionFeedback` schema, returns 
-     feedback as JSON. Even though the correctness check is trivial 
-     (string equality), routing through Gemma 4 makes the encouragement 
-     and retry hints contextual ("you tapped ఆ which is similar but 
-     longer; listen for the shorter sound").
+     returns `{correct: true|false, feedback: "..."}` chosen at random 
+     from the hardcoded variants. **No Gemma 4 call here** — feedback 
+     is pre-generated. This is the bundling architecture in its 
+     simplest form.
 4. Implement app/tts.py with `synthesize(text: str, language: str) -> bytes` 
-   using Google Cloud TTS. Use the voice chosen in Phase 1.5 Gate 4.
+   using Google Cloud TTS. Read voice and speakingRate from .env (with 
+   defaults te-IN-Standard-A, 0.85).
 5. Wire the frontend: vanilla JS for fetch calls, no framework. Display 
-   the model's `encouragement` field directly. Use simple CSS — large 
-   readable fonts, kid-friendly colors, no animations yet.
+   the feedback string directly. Use simple CSS — large readable fonts, 
+   kid-friendly colors, no animations yet.
 6. Test the loop yourself: open browser, see అ, hear pronunciation, tap 
    one of the 4 options, see feedback. Iterate until this loop works 
    end-to-end without manual intervention.
 7. Append to decisions.md any frontend simplifications or unexpected 
-   issues with the TTS/model integration.
+   issues with the TTS integration.
 
 **Acceptance:** End-to-end loop works in browser. From letter display 
-to feedback display, no manual steps. Time per round-trip should be 
-under 2 seconds (one Gemma 4 call + TTS).
+to feedback display, no manual steps. Round-trip should be sub-1-second 
+(only TTS call + UI rendering; no Gemma 4 call in the loop).
 
 **Critical:** if you cannot get the loop working by end of day 3, the 
-project is in trouble. Stop and simplify ruthlessly — bypass Gemma 4 
-for the feedback (use hardcoded "Yes!"/"Try again"), make TTS optional, 
-strip styling. Make the loop work, then add back.
+project is in trouble. Stop and simplify ruthlessly — make TTS 
+optional, strip styling. Make the loop work, then add back.
 
 ---
 
-## Phase 4: Practice Loop Deepening (Days 4-6, revised)
+## Phase 4: Practice Loop Deepening (Days 4-6, revised for bundling)
 
 **Goal:** Full Telugu vowel set, basic curriculum, session structure, 
-distractor generation by Gemma 4, simple progress tracking.
+deterministic distractor selection, simple progress tracking. **No 
+Gemma 4 calls in the kid loop or the per-step distractor logic.** 
+Distractors are picked from the curriculum data using deterministic 
+rules; the planner (Phase 5.5) will later replace this with smarter 
+adaptive distractor choices but still in a single call at session 
+start.
 
 **Steps:**
 1. Define the Telugu curriculum in app/curriculum.py: a list of letter 
    entries covering the 16 Telugu vowels, then consonants in 
    pedagogical order. Each entry has the character, transliteration, 
-   English example word, and a difficulty rank. This is hardcoded for 
-   v1, not generated; reliability matters more than novelty here.
+   English example word, difficulty rank, and a `confusion_set` field 
+   listing visually-similar or sonically-similar letters that make 
+   good distractors. The confusion_set is hand-curated, not 
+   model-generated, because it's a small fixed set and reliability 
+   matters.
 2. Implement app/session.py: SQLite schema with tables `sessions`, 
    `attempts`. Functions to start a session, record an attempt with 
-   target letter / chosen letter / correctness / model feedback / 
+   target letter / chosen letter / correctness / feedback string used / 
    timestamp, end a session with summary stats. Session ID is a UUID.
-3. Implement Gemma-4-driven distractor selection: given a target 
-   letter, ask Gemma 4 for 3 plausible Telugu letter distractors using 
-   the `LetterSet` schema and a prompt that controls difficulty 
-   (easy = visually-distinct letters, medium = same vowel/consonant 
-   class, hard = visually-similar pairs). Cache common combinations to 
-   avoid repeated calls within a session.
-4. Replace the hardcoded letter and distractors in the kid loop with 
-   curriculum-driven selection. At session start, pick 5-7 letters using 
-   a "least practiced" heuristic — never-attempted first, then 
-   lowest-recent-accuracy. **This deterministic heuristic is also the 
-   fallback path for Phase 5.5's planner.**
-5. Add session navigation in the UI: progress indicator ("Letter 2 of 
+3. **Deterministic distractor selection (NEW — replaces Gemma-driven 
+   per-step calls).** Given a target letter and difficulty 
+   ("easy"/"medium"/"hard"), pick 3 distractors from the curriculum:
+   - easy: 3 visually-distinct letters from a different category (e.g., 
+     consonants when target is a vowel)
+   - medium: 2 from same category but distinct shape, 1 from 
+     confusion_set
+   - hard: 3 from confusion_set
+   Pure Python, no model call. The planner in Phase 5.5 will generate 
+   `RecognitionStep` objects that *use* this logic by default but can 
+   override with planner-chosen distractors when its reasoning suggests 
+   a specific pedagogical pairing.
+4. **Pre-generate a small feedback pool (NEW).** In app/curriculum.py, 
+   define a `FALLBACK_FEEDBACK_VARIANTS` constant: 5-6 positive 
+   strings ("Great!", "Yes! That's right!", "Perfect!") and 4-5 retry 
+   strings ("Listen again", "Try once more"). The planner will produce 
+   richer per-letter feedback variants in Phase 5.5; this pool is the 
+   fallback for when the planner runs.
+5. Replace the hardcoded letter and distractors in the kid loop with 
+   curriculum-driven selection. At session start, pick 5-7 letters 
+   using a "least practiced" heuristic — never-attempted first, then 
+   lowest-recent-accuracy. Build a list of `RecognitionStep` objects 
+   using the deterministic distractor logic and `FALLBACK_FEEDBACK_VARIANTS`. 
+   **This deterministic build is also the fallback path for Phase 
+   5.5's planner.**
+6. Add session navigation in the UI: progress indicator ("Letter 2 of 
    5"), "Next letter" button after feedback, session-end screen with 
    simple message ("Great job! You practiced 5 letters today."). Allow 
    one retry per letter — if kid taps wrong, show retry hint, on second 
    wrong attempt move on with a soft "we'll come back to this one."
-6. After each attempt, store the model's feedback verbatim in SQLite. 
-   This becomes the data source for the parent dashboard.
-7. Test the loop on your own kids if available. Watch where they get 
+7. After each attempt, store the feedback string and correctness in 
+   SQLite. This becomes the data source for the parent dashboard.
+8. Test the loop on your own kids if available. Watch where they get 
    confused or bored. Note observations in decisions.md.
-8. Update writeup/draft.md "What I Built" section with the curriculum 
-   structure, distractor generation by Gemma 4, and session flow.
+9. Update writeup/draft.md "What I Built" section with the curriculum 
+   structure, deterministic-distractor-now-planner-bundled-later 
+   architecture, and session flow.
 
 **Acceptance:** Full session of 5+ letters runs end to end. Progress 
 persists across sessions. Curriculum picks sensibly different letters 
-in subsequent sessions. Distractors are generated by Gemma 4 and feel 
-appropriate (close-but-distinguishable letters, not random unrelated 
-ones).
+in subsequent sessions. **Zero Gemma 4 calls during a kid session** — 
+the loop runs on cached `RecognitionStep` data and pre-generated 
+feedback variants. Distractors feel appropriate (close-but-distinguishable 
+letters, not random unrelated ones) thanks to the confusion_set design.
 
 **Risk to watch:** scope creep. Resist adding spaced repetition, 
 elaborate difficulty progression, multi-session arcs. Keep it simple.
@@ -239,7 +245,9 @@ Polished enough to screenshot for the submission.
      SQLite for the given date.
    - `generate_english_summary(session_data) -> str` — calls 
      query_gemma with `SessionSummary` schema. The 256K context lets 
-     you pass the full session history into one call.
+     you pass the full session history into one call. **One Gemma 4 
+     call per dashboard load** — acceptable because parents trigger 
+     this manually, not in a tight loop.
 3. Implement static/parent.html: dashboard view with today's session 
    count, list of letters practiced (Telugu character + English 
    transliteration), the model's English summary in a prominent card, 
@@ -258,80 +266,116 @@ presentable in a screenshot.
 
 ---
 
-## Phase 5.5: Session Planner — Agentic Layer 2 (Days 8-9, unchanged)
+## Phase 5.5: Session Planner — Agentic Layer 2 (Days 8-9, revised for bundling)
 
 **Goal:** Build the agentic session planner. The architectural 
-differentiator. Adaptive personalization at session boundaries.
+differentiator. Adaptive personalization at session boundaries — *and 
+the single Gemma 4 call per kid session* under the planner-bundling 
+architecture. The planner generates not just step ordering but also 
+distractors and feedback variants for every step in its single call, 
+so the kid loop never calls Gemma 4 mid-session.
 
 **Read first:** Re-read the "Architecture Philosophy" section in 
-CLAUDE.md before starting. The planner is intentionally constrained — 
-runs once at session start, has read-only tools, emits a structured 
-SessionPlan, and never reaches into the kid loop.
+CLAUDE.md and the 2026-05-10 "Architecture mitigation for free-tier 
+reliability" entry in decisions.md before starting. The planner is 
+intentionally constrained — runs once at session start, has read-only 
+tools, emits a structured `SessionPlan` containing all per-step content, 
+and never reaches into the kid loop.
 
 **Steps:**
 1. Implement app/planner.py with `plan_session(kid_id: str, language: str, 
    force_fallback: bool = False) -> SessionPlan`. When `force_fallback` 
-   is True, skip the agentic call and use the deterministic curriculum 
-   heuristic from Phase 4.
-2. The planner makes a single call to query_gemma with thinking mode 
-   enabled, function calling enabled, and the three tool definitions. 
+   is True, skip the agentic call and use the deterministic 
+   `RecognitionStep` builder from Phase 4 step 5.
+2. **Bundled planner contract (REVISED).** The planner makes a single 
+   call to query_gemma with thinking mode enabled, function calling 
+   enabled, and the three tool definitions. The output `SessionPlan` 
+   must contain, for every step in `steps`:
+   - The `RecognitionStep` with target, 3 distractors, and a 
+     `FeedbackVariants` pool (3 positive + 2 retry strings, varied for 
+     warmth and tonal range — not just "Great!" repeated).
+   - The `step_type` and `expected_difficulty`.
+   - The planner's `reasoning` field at the SessionPlan level explains 
+     *why* this combination of letters and difficulty was chosen given 
+     recent history.
+   The planner can override deterministic distractor selection when its 
+   reasoning suggests a specific pedagogical pairing (e.g., "Aanya 
+   confused ఎ and ఏ yesterday; today's session pairs them deliberately"). 
    Use cloud Gemma 4 31B (already the v1 default). 
-   **Smoke-test tool calling first** with a trivial scenario before 
-   building the real planner — Gate 3 lesson applies.
-3. Implement the three tools as Python functions reading from SQLite. 
+   **Smoke-test tool calling and bundled-output structure first** with 
+   a trivial scenario before building the full planner — Gate 3 lesson 
+   applies.
+3. **Retry-with-exponential-backoff on the planner call.** Wrap the 
+   single agentic query_gemma call in a retry loop: 3 attempts max, 
+   waits of 1s / 3s / 9s between attempts. Trigger retry on HTTP 429, 
+   HTTP 502, timeout, JSON parse error, or schema validation error. On 
+   exhausting retries, log failure and call again with 
+   `force_fallback=True`. The kid never sees the failure.
+4. Implement the three tools as Python functions reading from SQLite. 
    Each returns a Pydantic-validated structure that the model receives 
-   as tool output.
-4. Write the planner's system prompt (`PLANNER_PROMPT_V1` in 
+   as tool output. **Tools are pure read functions. Verify in code 
+   review.**
+5. Write the planner's system prompt (`PLANNER_PROMPT_V1` in 
    app/prompts.py). Establishes: model is a session planner for an 
    early-literacy app; user is 5-8 year old; consistency matters more 
    than novelty; introduce new step types (word recognition, then 
    read-aloud if available) only when prerequisite letters are 
    mastered (mastery: 80%+ accuracy across 3+ attempts); session length 
-   5-8 steps. The prompt should make the model justify its plan in the 
-   `reasoning` field.
-5. Build a 5-call eval for the planner: 5 fake session histories 
+   5-8 steps. The prompt instructs the model to also emit per-step 
+   distractors and feedback variants per the bundled contract. The 
+   prompt must make the model justify its plan in the `reasoning` 
+   field.
+6. Build a 5-call eval for the planner: 5 fake session histories 
    (brand new, vowels-strong-consonants-weak, ready-for-words, 
    struggling-with-similar-letters, mostly-mastered). Run the planner 
    and verify the output `SessionPlan` matches what a literacy expert 
-   would suggest. Save to eval/results/planner_scorecard.md.
-6. Wire the planner into `/api/session/start`: calls `plan_session()`. 
-   On success, returned `SessionPlan` becomes the session's step list. 
-   On failure (timeout > 10s, JSON error, schema error, tool error), 
-   log it and call again with `force_fallback=True`. The kid never 
-   sees the failure.
-7. Update static/kid.html to render whatever step type the planner 
+   would suggest *and* contains complete distractor/feedback bundling. 
+   Save to eval/results/planner_scorecard.md.
+7. Wire the planner into `/api/session/start`: calls `plan_session()`. 
+   On success, returned `SessionPlan` becomes the session's step list 
+   and per-step content. On failure (after retries exhausted), 
+   `force_fallback=True` builds the same shape from the deterministic 
+   logic. The kid loop reads from `SessionPlan` regardless of which 
+   path produced it — same shape both ways.
+8. Update static/kid.html to render whatever step type the planner 
    returns:
    - `recognize_letter`: existing flow (display letter, audio, 4 
-     options, feedback).
+     options, feedback drawn from per-step variants).
    - `recognize_word`: display 2-letter Telugu word with 
      transliteration, audio, 4-option pick (one correct word, 3 
-     distractor words). Same pattern.
+     distractor words). Same pattern as letter recognition.
    - `read_aloud`: optional Phase 6, see below.
-8. Update parent dashboard to show the planner's `reasoning` field — 
+9. Update parent dashboard to show the planner's `reasoning` field — 
    parents see *why* their kid practiced what they did today. This is 
-   one of the strongest demo moments: "Today's session focused on 
-   short-vowel-vs-long-vowel pairs because Aanya scored highly on 
-   isolated vowels but struggles when they appear close together."
-9. Update writeup/draft.md with the architectural story: deterministic 
-   Layer 1 / agentic Layer 2 split, the planner's reasoning over 
-   session history, the fallback safety net.
-10. Append to decisions.md: planner prompt version, mastery threshold, 
-    eval results, any tool-calling quirks discovered.
+   one of the strongest demo moments.
+10. Update writeup/draft.md with the architectural story: deterministic 
+    Layer 1 / agentic Layer 2 split, the planner's bundled-output 
+    contract as the answer to the 20 req/min cap, the retry-and-fallback 
+    safety net.
+11. Append to decisions.md: planner prompt version, mastery threshold, 
+    eval results, any tool-calling quirks discovered, retry behavior 
+    observations.
 
 **Acceptance:** Planner runs at session start, produces sensible plans 
-for the 5 eval scenarios, fallback works when forced, kid loop renders 
-both letter and word recognition, parent dashboard shows the reasoning. 
-End-to-end test: simulate a kid who's mastered vowels, start a session, 
-verify the planner introduces word recognition.
+for the 5 eval scenarios with full distractor/feedback bundling, retry 
+logic activates correctly on simulated 502s, fallback path produces 
+the same `SessionPlan` shape, kid loop renders both letter and word 
+recognition with **zero Gemma 4 calls during the session**, parent 
+dashboard shows the reasoning. End-to-end test: simulate a kid who's 
+mastered vowels, start a session, verify the planner introduces word 
+recognition and the kid loop runs smoothly.
 
 **If you fall behind:**
 - Cut the read_aloud step type (Phase 6 anyway).
+- Cut the planner's distractor override capability (always use 
+  deterministic distractors; planner only chooses targets and 
+  feedback). Saves complexity in the prompt and validation.
 - Keep the planner. The agentic call is the architectural story; 
   cutting it cuts the differentiator.
 
 ---
 
-## Phase 6: Polish + Optional Read-Aloud (Days 10, 1 day)
+## Phase 6: Polish + Optional Read-Aloud (Day 10, 1 day)
 
 **Goal:** Kid UX feels good. Demo-ready. Read-aloud track added only if 
 time allows.
@@ -341,9 +385,10 @@ time allows.
    animation), audio reward sound on correct attempts, larger touch 
    targets for tablet use, session-end celebration with stars or 
    similar simple effect.
-2. Add error states for likely failure modes: TTS failure, model 
-   timeout, planner timeout. Each should produce a kid-friendly 
-   message ("Hmm, let me try that again — give me a moment").
+2. Add error states for likely failure modes: TTS failure, planner 
+   timeout (already handled by Phase 5.5 retry+fallback, but verify 
+   the kid-side message is friendly), session-load failure. Each 
+   should produce a kid-friendly message.
 3. **Optional: Read-aloud track.** If time allows, add the 
    `read_aloud` step type:
    - Display 2-line Telugu rhyme with transliteration.
@@ -353,18 +398,23 @@ time allows.
      backend endpoint that calls Google Cloud Speech-to-Text in 
      Telugu, then asks Gemma 4 to compare transcript to expected and 
      return encouraging feedback.
-   - This adds Speech-to-Text as a new dependency on the cloud side — 
+   - Adds Speech-to-Text as a new dependency on the cloud side — 
      enable Cloud Speech-to-Text API in the same GCP project as TTS, 
      same key works.
    - Cut without remorse if Phase 5.5 ran long.
-4. Test on at least one tablet or phone browser. Adjust layout if 
+4. **Implement TTS audio caching (per Gate 5 mitigation #3).** On-disk 
+   cache at `data/tts_cache/`, keyed by SHA256 of (text, voice, 
+   languageCode, speakingRate). Cache lookup on every `synthesize()` 
+   call; write-through on miss. Tiny addition, big perceived-speed 
+   improvement during demo since most letters repeat across sessions.
+5. Test on at least one tablet or phone browser. Adjust layout if 
    needed.
-5. Solicit feedback from one or two real users (your own kids if 
+6. Solicit feedback from one or two real users (your own kids if 
    available). Note top 3 friction points and fix them.
 
 **Acceptance:** Kid UI feels engaging and forgiving. Tablet layout is 
-usable. Read-aloud demonstrated end-to-end if implemented; otherwise 
-documented as v2.
+usable. TTS cache hits dominate after one session. Read-aloud 
+demonstrated end-to-end if implemented; otherwise documented as v2.
 
 ---
 
@@ -384,37 +434,48 @@ documented as v2.
      capability does not currently read Telugu script reliably — 5% 
      local accuracy, 20% cloud accuracy on a graduated handwriting 
      eval, including failures on perfectly-rendered typed reference 
-     characters. I pivoted to a design that uses Gemma 4 where it 
-     actually shines: multilingual text generation, agentic session 
-     planning, structured outputs via function calling, and 256K 
-     context for full session history." Include the scorecard table 
-     from eval/results/handwriting_scorecard.md.
+     characters. Then a rate-limit stress test showed the free tier 
+     caps at 20 req/min with ~36% upstream 502s under sustained load. 
+     I redesigned around both findings: dropped vision entirely, 
+     switched to tap-to-recognize, and bundled all per-session Gemma 
+     4 calls into a single agentic planner call at session start. The 
+     result is a product that uses Gemma 4 where it actually shines: 
+     multilingual generation, agentic session planning, structured 
+     outputs via function calling, 256K context for full session 
+     history." Include the scorecard table from 
+     eval/results/handwriting_scorecard.md and the Gate 5 stress-test 
+     numbers.
    - Why Gemma 4 specifically (the revised five-point pitch).
    - What was built (with parent-dashboard screenshot, planner 
      reasoning example).
    - How it works (architecture diagram showing 
-     deterministic-vs-agentic split).
+     deterministic-vs-agentic split + bundled-call architecture).
    - Demo video link.
    - Tradeoffs and decisions (cite specific decisions.md entries: 
-     local-vs-cloud, vision-tested-and-rejected, Telugu-only).
+     vision-tested-and-rejected, free-tier-mitigations, Telugu-only).
    - What's next (v2 with photo-feedback when models improve, 
-     read-aloud, multi-language).
+     read-aloud, multi-language, paid-tier reliability).
 2. The architectural split (deterministic kid loop vs agentic planner) 
-   is the central technical story. Tied with the honest negative-result 
-   handling, this is the differentiator. Make both prominent.
+   *and* the bundled-call architecture (one Gemma 4 call per session, 
+   not per step) are both central technical stories. Tied with the 
+   honest negative-result handling of Gate 3, this triad is the 
+   differentiator.
 3. Generate the architecture diagram. Use Mermaid in markdown if 
    dev.to renders it; otherwise simple PNG. Show: kid UI → FastAPI → 
-   query_gemma (cloud 31B) for both kid loop and planner; planner 
-   reads SQLite via tool calls; TTS as a side path; parent dashboard 
-   on a separate route.
+   single planner call (cloud 31B with thinking + tools) returns 
+   SessionPlan with all per-step content; kid loop renders from 
+   SessionPlan with TTS calls only; parent dashboard makes its own 
+   single Gemma 4 call for the English summary.
 4. Record demo video, 2-3 minutes:
    - 15 seconds: the problem (b-roll, narration about script literacy 
      gap).
    - 30 seconds: the engineering pivot — show the eval data briefly, 
-     mention the honest finding ("vision didn't work for Telugu, so I 
-     redesigned"). This makes the rest of the video land harder.
+     mention both findings ("vision didn't work for Telugu, free tier 
+     hit hard limits, so I redesigned"). This makes the rest of the 
+     video land harder.
    - 45 seconds: kid using the app — letter shown, audio plays, kid 
-     taps the right answer, encouraging feedback.
+     taps the right answer, encouraging feedback. Sub-1s round-trip 
+     visible.
    - 30 seconds: planner reasoning visible on parent dashboard ("Today 
      focused on X because...").
    - 30 seconds: parent dashboard walkthrough.
@@ -443,20 +504,24 @@ to clone and run.
 2. Run the parent dashboard 3 times — make sure it loads cleanly, 
    summary makes sense, no stale data.
 3. Stress test: leave the app running for an hour, then test the loop. 
-   Common failures: SQLite locks, OpenRouter session expiry. Fix or 
-   document.
-4. Write README.md with: project overview, the personal motivation in 
+   Common failures: SQLite locks, OpenRouter session expiry, planner 
+   retry exhaustion under sustained 502s. Fix or document.
+4. Re-evaluate paid OpenRouter credits per the Gate 5 mitigation #4. 
+   If sustained-use 502s would shred the demo, $5-10 of credits 
+   switches to paid Gemma 4 31B and removes the per-minute cap. 
+   Document the decision in decisions.md either way.
+5. Write README.md with: project overview, the personal motivation in 
    2 paragraphs, the honest engineering pivot in 1 paragraph linking 
    to writeup for full story, prerequisites (Python 3.11+, OpenRouter 
    key, Google Cloud TTS key — both with free-tier links), setup steps 
    (clone, uv install, copy .env.example, run uvicorn), screenshots, 
    link to writeup and video, license (Apache 2.0 to match Gemma 4).
-5. Verify the setup steps actually work: in a fresh shell, follow your 
+6. Verify the setup steps actually work: in a fresh shell, follow your 
    own README from scratch to running app. Time it. Should be under 
    10 minutes.
-6. Final eval re-run: run all evals once more on the final code state. 
+7. Final eval re-run: run all evals once more on the final code state. 
    Update writeup numbers if anything shifted.
-7. Commit everything. Push to public GitHub repo. Verify the repo URL 
+8. Commit everything. Push to public GitHub repo. Verify the repo URL 
    works from incognito.
 
 **Acceptance:** Demo loop is stable. README works for a stranger. Repo 
@@ -500,11 +565,13 @@ PM PDT deadline). Do not submit in the last 2 hours.
 
 Cut order: read-aloud step type (Phase 6 step 3), Hindi generalization 
 (can be added to Phase 6 if read-aloud is cut), session-end celebration 
-polish, kid UI animations, planner's introduction of word recognition 
+polish, kid UI animations, planner's distractor override (always use 
+deterministic distractors), planner's introduction of word recognition 
 (stay on letter recognition only).
 
 **Do not cut:** the deterministic kid loop, the parent dashboard with 
-English summary, the session planner itself, the eval comparison data 
-including the honest Gate 3 fail story, the demo video, the writeup. 
-The kid loop, the planner, the parent dashboard, and the honest 
+English summary, the session planner itself with bundled output, the 
+eval comparison data including the honest Gate 3 fail story, the Gate 
+5 stress test data, the demo video, the writeup. The kid loop, the 
+planner with bundling, the parent dashboard, and the honest 
 negative-result framing are the four things that win this submission.

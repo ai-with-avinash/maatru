@@ -282,3 +282,127 @@ Phase 1 step 10 (OpenRouter rate-limit stress test) and step 11
 (Gate 4 TTS quality check) still pending. Both apply unchanged 
 to the new design. Resume after CLAUDE.md and PLAN.md are 
 updated.
+
+## 2026-05-10 — Phase 1.5 Gate 5: OpenRouter rate-limit stress test results
+
+Ran eval/stress_openrouter.py: 50 sequential trivial-prompt requests 
+("respond with the word ok") to google/gemma-4-31b-it:free via 
+query_gemma(model="cloud") with BYOK (personal Google AI Studio 
+key in OpenRouter). Full per-request log saved at 
+eval/results/openrouter_ratelimit_20260510T043436Z.txt.
+
+Results:
+- Total wall time: 149.83s. Throughput: 20.02 requests/min.
+- Success: 20/50 (40.0%).
+- 429s: 12. One returned the explicit message "Rate limit exceeded: 
+  free-models-per-min" with header X-RateLimit-Limit: 20 and 
+  X-RateLimit-Remaining: 0. The 20.02 req/min throughput exactly 
+  matches the 20-per-min cap — the cap is the binding constraint.
+- 502s: 18. All carried upstream payload "Internal error 
+  encountered. status: INTERNAL" from Google AI Studio (code 500 
+  surfaced through OpenRouter as 502). Not rate-limit related; 
+  upstream backend instability.
+- Latency on the 20 successes: median 5302ms, p95 15421ms, max 
+  15666ms.
+
+Three orthogonal problems exposed:
+1. **Rate cap.** Free tier hard-caps 20 req/min at OpenRouter's 
+   free-models layer regardless of which key is used. Sustained 
+   sequential load is rate-limited by design.
+2. **Upstream instability.** ~36% of requests returned 502 from 
+   Google AI Studio internal errors. Cannot be fixed client-side; 
+   needs retry logic.
+3. **Latency variance.** p95 of 15.4s and max of 15.7s on 
+   successes far exceeds CLAUDE.md's sub-2s kid-loop budget. Even 
+   when the call succeeds, the kid waits.
+
+Implication: the kid loop cannot do many sequential Gemma 4 calls 
+per session on free tier without retry pain and visible latency 
+spikes. Architecture mitigation captured as a separate entry below.
+
+## 2026-05-10 — Correction: BYOK fixed shared-pool 429s, not per-minute cap
+
+The 2026-05-09 "API connectivity verified end-to-end" entry stated 
+"no upstream rate limits with personal key." Gate 5 data shows that 
+was overstated. BYOK (registering a personal Google AI Studio key 
+in OpenRouter Settings → Integrations) eliminated the *shared-pool 
+exhaustion* 429s seen during the initial test, but did not lift 
+OpenRouter's free-models-per-min cap of 20/min, which is enforced 
+at the free-tier layer and applies regardless of which key is used. 
+This entry is a documentation correction; append-only discipline 
+holds and the original entry stands as-is.
+
+## 2026-05-10 — Architecture mitigation for free-tier reliability
+
+In response to the Gate 5 findings (20 req/min cap, ~36% upstream 
+502s, p95 15s latency), the following decisions are committed for 
+implementation in upcoming phases:
+
+1. **Bundle kid-session Gemma 4 calls into the planner.** The 
+   Phase 5.5 session planner will pre-generate distractors and 
+   feedback variants for every step in its single agentic call, so 
+   the kid loop renders from the cached SessionPlan instead of 
+   calling Gemma 4 per step. Reduces kid-session Gemma 4 calls 
+   from ~14 (one per recognition + one per feedback across a 7-step 
+   session) to 1 (the planner call at session start). This makes 
+   the 20/min cap a non-issue for normal usage and drops kid-loop 
+   latency to TTS + UI only.
+2. **Retry-with-exponential-backoff on the planner call.** 1s, 3s, 
+   9s waits between attempts; 3 retries max. On full failure, fall 
+   back to the deterministic curriculum heuristic from Phase 4 
+   (`force_fallback=True` path already specified in PLAN.md Phase 
+   5.5 step 1). The kid never sees the failure.
+3. **Cache Google Cloud TTS audio per (character, voice) pair.** 
+   On-disk cache keyed by SHA of (text, voice, language). Most 
+   curriculum letters repeat across sessions; cache hits will 
+   dominate. Improves perceived speed during demo and reduces TTS 
+   API spend.
+4. **Defer paid OpenRouter credits.** Re-evaluate after Phase 3 
+   thin-slice load testing. If the bundling decision (1) brings 
+   kid-session calls to 1, free tier should suffice. Paid credits 
+   become a Phase 8 hardening question, not a Phase 1.5 blocker.
+
+These mitigations preserve the v1 cloud-only architecture without 
+introducing new dependencies or relaxing the deterministic kid 
+loop / agentic planner split from CLAUDE.md.
+
+## 2026-05-10 — Phase 1.5 Gate 4: Google Cloud TTS quality — PASS
+
+Generated 10 Telugu TTS samples (5 phrases × 2 voices) via 
+eval/gen_tts_samples.py using Google Cloud TTS API, speakingRate=0.85, 
+MP3 encoding, languageCode=te-IN. Samples saved to 
+eval/tts_samples/ with manifest.txt for reviewer reference.
+
+Phrases tested: అ (vowel), క (consonant), నమస్కారం (greeting), 
+అమ్మ (word), చాలా బాగా (encouragement — highest-stakes phrase since 
+it plays multiple times per kid session).
+
+Telugu-literate reviewer (Avinash's wife) listened to all 10 samples 
+and rated quality acceptable for child-appropriate use. Verdict: 
+**te-IN-Standard-A** (female voice) chosen as the v1 default. 
+Pronunciation accurate across all phrase types including isolated 
+letters; tone warm enough for repeated kid exposure.
+
+Configuration committed: TTS_PROVIDER=google, voice=te-IN-Standard-A, 
+speakingRate=0.85, encoding=MP3. The voice and rate values will be 
+read from .env in app/tts.py during Phase 3 wiring.
+
+Gate 4 PASS. All four Day-1 evaluation gates that materially affect 
+v1 viability are now resolved (Gate 1 vision: passed but moot post-pivot; 
+Gate 2 generation: PASS; Gate 3 handwriting: FAIL → triggered pivot; 
+Gate 4 TTS: PASS; Gate 5 rate limits: data captured, mitigations 
+specified). Phase 1.5 formally closes.
+
+## 2026-05-10 — Phase 1 formally closed
+
+All Day-1 evaluation gates are resolved. The pivot from photo-feedback 
+to tap-to-recognize stands; the architecture mitigation for free-tier 
+reliability (planner bundling + retry + TTS caching) is committed for 
+Phase 4-5.5 implementation; TTS voice and configuration are chosen.
+
+Project state: Phase 0 ✓, Phase 1 ✓ (with pivot mid-phase), Phase 1.5 ✓.
+Next: PLAN.md update to reflect planner-bundling architecture (Phases 
+4 and 5.5 contracts changed), then Phase 2 (schema definitions for 
+the bundled planner contract).
+
+Days remaining to deadline: 14.
