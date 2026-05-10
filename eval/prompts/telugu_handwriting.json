@@ -1,0 +1,102 @@
+[
+  {
+    "prompt_id": "th_01",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/అ_typed_01.jpg"
+  },
+  {
+    "prompt_id": "th_02",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఆ_similar_01.jpg"
+  },
+  {
+    "prompt_id": "th_03",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఇ_adult_01.jpg"
+  },
+  {
+    "prompt_id": "th_04",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఈ_similar_04.jpg"
+  },
+  {
+    "prompt_id": "th_05",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఊ_similar_05.jpg"
+  },
+  {
+    "prompt_id": "th_06",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఎ_child_01.jpg"
+  },
+  {
+    "prompt_id": "th_07",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఏ_similar_02.jpg"
+  },
+  {
+    "prompt_id": "th_08",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ఓ_similar_03.jpg"
+  },
+  {
+    "prompt_id": "th_09",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/క_typed_02.jpg"
+  },
+  {
+    "prompt_id": "th_10",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/చ_child_02.jpg"
+  },
+  {
+    "prompt_id": "th_11",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/త_adult_02.jpg"
+  },
+  {
+    "prompt_id": "th_12",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ద_child_03.jpg"
+  },
+  {
+    "prompt_id": "th_13",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/న_adult_03.jpg"
+  },
+  {
+    "prompt_id": "th_14",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ప_adult_04.jpg"
+  },
+  {
+    "prompt_id": "th_15",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/బ_child_04.jpg"
+  },
+  {
+    "prompt_id": "th_16",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/మ_typed_03.jpg"
+  },
+  {
+    "prompt_id": "th_17",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/య_typed_04.jpg"
+  },
+  {
+    "prompt_id": "th_18",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ర_adult_05.jpg"
+  },
+  {
+    "prompt_id": "th_19",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/ల_child_05.jpg"
+  },
+  {
+    "prompt_id": "th_20",
+    "prompt_text": "This image shows a single Telugu character. Identify which Telugu character it is. Respond as JSON: {\"character\": \"<the character>\", \"transliteration\": \"<roman>\", \"confidence\": \"high|medium|low\"}.",
+    "image_path": "eval/images/handwriting/స_typed_05.jpg"
+  }
+]

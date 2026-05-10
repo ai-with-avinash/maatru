@@ -1,0 +1,42 @@
+[
+  {
+    "prompt_id": "tg_01",
+    "prompt_text": "Generate the Telugu vowel అ. Provide its English transliteration and a sample word."
+  },
+  {
+    "prompt_id": "tg_02",
+    "prompt_text": "Write a 3-word Telugu sentence a 6-year-old can understand. Provide transliteration and English translation."
+  },
+  {
+    "prompt_id": "tg_03",
+    "prompt_text": "List the first 5 Telugu vowels with English transliterations."
+  },
+  {
+    "prompt_id": "tg_04",
+    "prompt_text": "Translate 'the cat is sleeping' into Telugu using Telugu script. Provide transliteration."
+  },
+  {
+    "prompt_id": "tg_05",
+    "prompt_text": "Generate 5 simple two-letter Telugu words suitable for early readers (ages 5-7). Provide transliterations."
+  },
+  {
+    "prompt_id": "tg_06",
+    "prompt_text": "What is the Telugu word for 'mother'? Provide the script form, transliteration, and one example sentence."
+  },
+  {
+    "prompt_id": "tg_07",
+    "prompt_text": "Generate a 4-line Telugu rhyme suitable for a 5-year-old. Provide transliteration."
+  },
+  {
+    "prompt_id": "tg_08",
+    "prompt_text": "List 3 Telugu words that start with the letter క. Include transliteration and English meaning."
+  },
+  {
+    "prompt_id": "tg_09",
+    "prompt_text": "Write the Telugu numbers 1 through 5 in script. Provide their names in transliteration."
+  },
+  {
+    "prompt_id": "tg_10",
+    "prompt_text": "Translate the question 'what is your name?' into Telugu in script and transliteration."
+  }
+]
