@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     ended_at TEXT NULL,
     language TEXT NOT NULL,
     focus TEXT NULL,
-    fallback_used INTEGER NOT NULL DEFAULT 1
+    fallback_used INTEGER NOT NULL DEFAULT 1,
+    reasoning TEXT NULL
 )
 """
 
@@ -73,26 +74,40 @@ def _connect(db_path: str | Path = DEFAULT_DB_PATH) -> Iterator[sqlite3.Connecti
 
 
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
-    """Idempotent. Creates tables and indices if missing."""
+    """Idempotent. Creates tables and indices if missing.
+
+    Also adds the `sessions.reasoning` column on existing pre-Phase-5.5 DBs
+    where CREATE TABLE IF NOT EXISTS is a no-op. ALTER fails harmlessly if the
+    column already exists (older sqlite3 raises sqlite3.OperationalError).
+    """
     with _connect(db_path) as conn:
         conn.execute(_SCHEMA_SESSIONS)
         conn.execute(_SCHEMA_ATTEMPTS)
         conn.execute(_INDEX_ATTEMPTS_TARGET)
         conn.execute(_SCHEMA_SETTINGS)
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "reasoning" not in existing:
+            conn.execute("ALTER TABLE sessions ADD COLUMN reasoning TEXT NULL")
 
 
 def create_session(
     language: str = "te",
     focus: str | None = None,
     fallback_used: bool = True,
+    reasoning: str | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> str:
-    """Insert a new session row and return its UUID."""
+    """Insert a new session row and return its UUID.
+
+    `reasoning` persists the planner's session-level justification for
+    planner-driven sessions; pass None for deterministic/fallback sessions.
+    """
     session_id = str(uuid.uuid4())
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO sessions (id, started_at, ended_at, language, focus, fallback_used) VALUES (?, ?, NULL, ?, ?, ?)",
-            (session_id, _now_utc_iso(), language, focus, 1 if fallback_used else 0),
+            "INSERT INTO sessions (id, started_at, ended_at, language, focus, fallback_used, reasoning) "
+            "VALUES (?, ?, NULL, ?, ?, ?, ?)",
+            (session_id, _now_utc_iso(), language, focus, 1 if fallback_used else 0, reasoning),
         )
     return session_id
 

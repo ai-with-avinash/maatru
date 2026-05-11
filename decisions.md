@@ -634,3 +634,114 @@ never waits for Gemma 4; the parent triggers the model call
 manually and tolerates seconds of latency at dashboard load.
 
 Days remaining to deadline: 13.
+
+## 2026-05-11 — Phase 5.5 closed: agentic session planner with deterministic fallback
+
+The Layer-2 agentic planner ships. A single Gemma 4 call at /api/session/start
+bundles the entire SessionPlan: target letter + 3 distractors + 3 positive +
+2 retry feedback variants per step, plus session-level focus and reasoning.
+The kid loop reads from this cached plan and makes zero further Gemma 4 calls
+during the session — the architectural invariant from CLAUDE.md / decisions.md
+2026-05-10 holds in production.
+
+Files delivered:
+- app/planner.py (576 lines) — three read-only SQLite tools
+  (get_recent_sessions, get_letter_accuracy, get_curriculum); reusable
+  call_gemma_with_retry wrapper with 1s/3s/9s backoff over 3 retries,
+  retrying on HTTP 429/502, request timeout, missing tool_calls, and
+  tool-arg JSON parse failures; agentic plan_session() with an 8-iteration
+  loop cap and bundling-violation detection; build_deterministic_session_plan()
+  as the safety net.
+- app/session.py — added sessions.reasoning column (idempotent ALTER on
+  existing DBs); create_session() takes optional reasoning kwarg.
+- app/prompts.py — PLANNER_PROMPT_V1 revised 2026-05-11 with explicit
+  distractor-uniqueness clause (target glyph MUST NOT appear in distractors,
+  distractors MUST be mutually distinct) after step A4 caught a real
+  bundling violation where the model put క in its own distractors.
+- app/main.py — /api/session/start wired to plan_session() with
+  asyncio.wait_for(45s) backstop that forces deterministic fallback on
+  timeout. Removed the inline deterministic build and SessionStepDTO from
+  Phase 4 (plan_session owns session creation now).
+- app/parent.py — get_today_summary() returns session_plans (with reasoning,
+  focus, fallback_used per session).
+- static/kid.html — frontend reads step.step_data.* (nested SessionPlan
+  shape); 60s AbortController as client-side safety net; cycling loading
+  messages over 0/10/25s for the typical 5-15s wait. Phase 6 polish item:
+  message cycling is too slow at 10s intervals; should drop to 4-5s
+  heartbeat for better perceived responsiveness.
+- static/parent.html — new "Why today's letters" card (green left-border
+  accent) renders one block per planner-driven session, chronological,
+  with IST timestamp + optional focus pill + reasoning paragraph.
+  Fallback sessions are filtered out (no meaningful reasoning to show);
+  whole card hidden if all of today's sessions are fallbacks.
+- eval/smoke_planner_tools.py, eval/smoke_planner_retry.py,
+  eval/smoke_planner_full.py, eval/verify_phase5_5_planner.py — verification
+  suite using isolated DB at eval/results/planner_verify.db (gitignored).
+
+Architecture under stress (verified in this phase):
+
+1. The retry wrapper survived upstream 502 storms organically during
+   verification. Gate 5's 36% 502 measurement held — multiple curl tests
+   hit 502s on attempts 1 and 2, succeeded on attempt 3. Retry observability
+   on stderr (timestamp + attempt + reason).
+
+2. The wait_for(45s) backstop fired twice during testing when retries
+   chained past the budget. Both times produced clean deterministic
+   sessions in ~45s, never surfaced as a frontend timeout error. Kid would
+   see "Almost ready..." then a usable session, not an error.
+
+3. The bundling-violation detector caught a real model failure during
+   Half A's mostly_mastered scenario (target ఖ appeared in its own
+   distractors). plan_session fell back cleanly without retrying — correct
+   policy: model-side content failures don't change shape on retry.
+
+Pedagogical reasoning verified visible in two of three browser-tested
+sessions:
+- Session 1 (cold-start): "This is the child's first session. We are
+  starting with the first five foundational vowels using easy-difficulty
+  steps to build confidence, pairing them with consonant distractors to
+  ensure they are distinct."
+- Session 2 (read history correctly): "The child did well in the first
+  session but struggled slightly with 'ఇ' (i). We are reinforcing the
+  first five vowels with medium difficulty to build confidence and
+  introducing 'ఊ' (uu) to expand their knowledge."
+- Session 3 (regression: ignored history): "Since this is the start of
+  the learner's journey, we are introducing the first five foundational
+  vowels..." despite two prior sessions in the DB. The model likely
+  skipped the get_recent_sessions tool call on this run.
+
+Phase 6 polish items captured:
+- Tighten PLANNER_PROMPT_V1 to require get_recent_sessions before
+  proposing a plan (mandatory not optional tool use).
+- Increase loading-message cycle rate from 10s/25s intervals to 4-5s
+  heartbeat for better perceived responsiveness during the 5-15s typical
+  wait.
+- Pre-warm the planner (run plan_session in the background when the kid
+  opens the app rather than when they tap "Start") to hide the wait
+  entirely. v2 work.
+- The strong_letters/needs_practice comma-string defense from Phase 5
+  could be tightened further. Deferred.
+
+Convention learned (carried forward from Phase 5):
+All verification scripts use isolated DB paths. Phase 5.5's
+eval/verify_phase5_5_planner.py creates eval/results/planner_verify.db
+which is gitignored. Production data/maatru.db was untouched throughout
+the verification cycle.
+
+Architectural note for the writeup:
+This phase is the architectural centerpiece. The deterministic/agentic
+split (Layer 1 = sub-second deterministic kid loop, Layer 2 = single
+agentic call at session boundaries) is now production-validated:
+- The kid loop has zero Gemma 4 calls during a session (verified by
+  static import inspection of app/main.py).
+- The planner's bundled output (distractors + feedback variants + reasoning)
+  flows through the existing SessionPlan contract from Phase 4, making
+  the producer swap invisible to the kid frontend.
+- The fallback path is exercised in real conditions roughly 25-40% of
+  the time during heavy Gemini instability — and the kid never sees
+  the failure. The deterministic plan is itself a usable session.
+- The parent dashboard surfaces the reasoning verbatim, making the
+  agentic decision visible as pedagogy ("we are reinforcing the first
+  five vowels...") rather than as opaque AI behavior.
+
+Days remaining to deadline: 13.

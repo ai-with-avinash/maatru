@@ -1,14 +1,15 @@
-"""FastAPI entrypoint for Maatru. Phase 4: multi-step deterministic kid loop.
+"""FastAPI entrypoint for Maatru.
 
-No Gemma 4 calls in any kid-loop endpoint per the planner-bundling
-architecture (decisions.md 2026-05-10). /api/session/start picks letters via
-the least-practiced heuristic and builds RecognitionStep-shaped payloads with
-deterministic distractors + FALLBACK_FEEDBACK_VARIANTS. The kid loop reads
-from that payload only. Phase 5.5 swaps the producer to the agentic planner;
-the shape stays identical.
+Phase 5.5 wired plan_session() into /api/session/start: that endpoint is now
+the SOLE producer of session rows for kid-driven flows. plan_session() runs
+the agentic planner (and falls back to the deterministic builder on retry
+exhaustion or bundling violation). The returned SessionPlan carries
+session_id, distractors, feedback variants, and reasoning — kid loop reads
+from that payload directly with zero further model calls during the session.
 """
 import asyncio
 import hashlib
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -16,15 +17,10 @@ from fastapi import Cookie, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from app.curriculum import (
-    FALLBACK_FEEDBACK_VARIANTS,
-    TELUGU_CURRICULUM,
-    select_distractors,
-    select_session_letters,
-)
 from app.parent import generate_english_summary, get_today_summary
+from app.planner import build_deterministic_session_plan, plan_session
+from app.prompts import SessionPlan
 from app.session import (
-    create_session,
     end_session,
     get_parent_pin,
     init_db,
@@ -40,6 +36,12 @@ _KID_HTML = _STATIC_DIR / "kid.html"
 _PARENT_HTML = _STATIC_DIR / "parent.html"
 _COOKIE_NAME = "maatru_parent"
 _WRONG_PIN_SLEEP_S = 0.5
+# Hard ceiling on /api/session/start latency. plan_session() owns its own
+# retry-then-fallback logic; this wait_for is a backstop against unexpected
+# agentic-loop hangs (e.g., a tool round that never terminates). With
+# 4 HTTP attempts × ~15s p95 + (1+3+9) backoff = ~73s worst case if no
+# safety net; capping at 45s preserves kid-loop UX even in that edge.
+_SESSION_START_HARD_TIMEOUT_S = 45.0
 
 
 def _pin_token(pin: str) -> str:
@@ -59,26 +61,10 @@ class PronounceRequest(BaseModel):
 
 
 class SessionStartRequest(BaseModel):
+    """language is the only request field the planner consumes; the planner
+    decides session length (5-8 steps) per its own pedagogical reasoning."""
+
     language: Literal["te", "hi"] = Field(default="te")
-    session_size: int = Field(default=5, ge=1, le=10)
-
-
-class StepLetter(BaseModel):
-    character: str
-    transliteration: str
-
-
-class SessionStepDTO(BaseModel):
-    step_index: int
-    target: StepLetter
-    distractors: list[StepLetter]
-    feedback: dict[str, list[str]]
-
-
-class SessionStartResponse(BaseModel):
-    session_id: str
-    language: str
-    steps: list[SessionStepDTO]
 
 
 class CheckRequest(BaseModel):
@@ -137,25 +123,33 @@ async def api_pronounce(req: PronounceRequest) -> Response:
     return Response(content=audio, media_type="audio/mpeg")
 
 
-@app.post("/api/session/start", response_model=SessionStartResponse)
-async def api_session_start(req: SessionStartRequest) -> SessionStartResponse:
+@app.post("/api/session/start", response_model=SessionPlan)
+async def api_session_start(req: SessionStartRequest) -> SessionPlan:
+    """Run the agentic planner; return a fully-bundled SessionPlan.
+
+    Latency is 5-15s on the model-driven path and 1-2s when fallback fires.
+    plan_session() owns retries and internal fallback; the wait_for here is
+    a double-protection backstop so the kid never sees a hung agentic loop
+    surface as a frontend timeout. On wait_for timeout, force the
+    deterministic fallback (which also creates the session row) so the kid
+    loop always lands on a usable SessionPlan within ~46s.
+    """
     init_db()
     if req.language != "te":
         raise HTTPException(status_code=400, detail=f"language {req.language!r} not supported in v1")
-    picks = select_session_letters(TELUGU_CURRICULUM, session_size=req.session_size)
-    if not picks:
-        raise HTTPException(status_code=500, detail="curriculum empty")
-    steps: list[SessionStepDTO] = []
-    for idx, entry in enumerate(picks):
-        distractors = select_distractors(entry, "medium", TELUGU_CURRICULUM)
-        steps.append(SessionStepDTO(
-            step_index=idx,
-            target=StepLetter(character=entry.character, transliteration=entry.letter.transliteration),
-            distractors=[StepLetter(character=d.character, transliteration=d.letter.transliteration) for d in distractors],
-            feedback=FALLBACK_FEEDBACK_VARIANTS,
-        ))
-    session_id = create_session(language=req.language, focus="phase 4 deterministic", fallback_used=True)
-    return SessionStartResponse(session_id=session_id, language=req.language, steps=steps)
+    try:
+        plan = await asyncio.wait_for(
+            plan_session(language=req.language),
+            timeout=_SESSION_START_HARD_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        print(
+            f"[main] session/start exceeded {_SESSION_START_HARD_TIMEOUT_S}s — forcing fallback",
+            file=sys.stderr,
+            flush=True,
+        )
+        plan = build_deterministic_session_plan(language=req.language)
+    return plan
 
 
 @app.post("/api/check_recognition", response_model=CheckResponse)
@@ -215,6 +209,7 @@ async def api_parent_today(_auth: None = Depends(require_parent_auth)) -> dict:
         "attempts_total": today_data["attempts_total"],
         "attempts_correct": today_data["attempts_correct"],
         "letters_practiced": today_data["letters_practiced"],
+        "session_plans": today_data["session_plans"],
         "summary": {k: summary.get(k, []) if k != "parent_summary_english" else summary.get(k, "") for k in summary_keys},
         "summary_error": summary.get("error"),
     }

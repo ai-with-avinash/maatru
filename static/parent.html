@@ -64,6 +64,18 @@
       .stat-label { font-size: 0.85rem; color: #6a6a6a; text-transform: uppercase; letter-spacing: 0.05em; }
       .summary-card { border-left: 6px solid #ff7a59; }
       .summary-text { font-size: 1.15rem; line-height: 1.6; }
+      .reasoning-card { border-left: 6px solid #4caf50; }
+      .reasoning-block { display: flex; flex-direction: column; gap: 0.4rem; padding: 1rem 0; border-bottom: 1px solid #f0e4d3; }
+      .reasoning-block:first-of-type { padding-top: 0; }
+      .reasoning-block:last-of-type { border-bottom: none; padding-bottom: 0; }
+      .reasoning-meta { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+      .reasoning-time { font-size: 0.85rem; color: #8a8a8a; }
+      .reasoning-focus {
+        display: inline-block; background: #f1f9f1; border: 1px solid #b6dfb8;
+        color: #2f6b32; border-radius: 999px; padding: 0.15rem 0.65rem;
+        font-size: 0.8rem; letter-spacing: 0.02em;
+      }
+      .reasoning-text { font-size: 1.1rem; line-height: 1.65; color: #2d2d2d; }
       .letters-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
@@ -187,6 +199,11 @@
             <h2>How it went today</h2>
             <p id="summary-text" class="summary-text"></p>
             <div id="summary-error-line" class="muted" hidden>Summary unavailable — refresh to try again.</div>
+          </div>
+
+          <div id="planner-reasoning-card" class="card reasoning-card" hidden>
+            <h2>Why today's letters</h2>
+            <div id="planner-reasoning-list" style="margin-top: 0.75rem;"></div>
           </div>
 
           <div id="letters-card" class="card">
@@ -382,6 +399,56 @@
         renderPillSection("strong-card", "strong-pills", data.summary && data.summary.strong_letters, "strong");
         renderPillSection("needs-card", "needs-pills", data.summary && data.summary.needs_practice, "needs");
         renderPillSection("suggested-card", "suggested-pills", data.summary && data.summary.suggested_next, "");
+        renderPlannerReasoning(data.session_plans || []);
+      }
+
+      function formatIstTime(utcIso) {
+        // SQL stores started_at as 'YYYY-MM-DDTHH:MM:SSZ'. Render in IST hh:mm AM/PM.
+        if (!utcIso) return "";
+        const d = new Date(utcIso);
+        if (Number.isNaN(d.getTime())) return "";
+        return new Intl.DateTimeFormat("en-IN", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZone: "Asia/Kolkata",
+        }).format(d);
+      }
+
+      function renderPlannerReasoning(sessionPlans) {
+        // Show only planner-driven sessions (fallback_used=false). Fallback
+        // sessions carry no meaningful per-session reasoning, so they would
+        // dilute the section if surfaced. If everything today is fallback,
+        // hide the whole card.
+        const driven = (sessionPlans || []).filter(
+          (sp) => sp && sp.fallback_used === false && typeof sp.reasoning === "string" && sp.reasoning.trim().length > 0,
+        );
+        const list = $("planner-reasoning-list");
+        list.innerHTML = "";
+        if (driven.length === 0) { hide("planner-reasoning-card"); return; }
+        for (const sp of driven) {
+          const block = document.createElement("div");
+          block.className = "reasoning-block";
+          const meta = document.createElement("div");
+          meta.className = "reasoning-meta";
+          const time = document.createElement("span");
+          time.className = "reasoning-time";
+          time.textContent = formatIstTime(sp.started_at);
+          meta.appendChild(time);
+          if (sp.focus && typeof sp.focus === "string" && sp.focus.trim().length > 0) {
+            const pill = document.createElement("span");
+            pill.className = "reasoning-focus";
+            pill.textContent = sp.focus;
+            meta.appendChild(pill);
+          }
+          const text = document.createElement("p");
+          text.className = "reasoning-text";
+          text.textContent = sp.reasoning;
+          block.appendChild(meta);
+          block.appendChild(text);
+          list.appendChild(block);
+        }
+        show("planner-reasoning-card");
       }
 
       function renderPillSection(cardId, pillsId, items, klass) {

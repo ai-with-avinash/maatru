@@ -1,7 +1,9 @@
 <!doctype html>
-<!-- Phase 4 kid loop: real multi-step session backed by /api/session/start.
-     Feedback variants are picked client-side from the per-step pool the
-     backend ships. No Gemma 4 calls anywhere in this loop. -->
+<!-- Phase 5.5 kid loop: tap-to-recognize over a planner-bundled SessionPlan.
+     /api/session/start runs the agentic planner (10-30s) and returns nested
+     steps as step.step_data.{target,distractors,step_index,feedback}.
+     Per-step feedback variants are picked client-side from the bundled pool.
+     No Gemma 4 calls anywhere in this loop. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -117,12 +119,31 @@
         return arr[Math.floor(Math.random() * arr.length)];
       }
 
+      const LOADING_MESSAGES = [
+        { atMs: 0,     text: "Preparing today's letters…" },
+        { atMs: 10000, text: "Picking the right practice for today…" },
+        { atMs: 25000, text: "Almost ready…" },
+      ];
+
       async function startSession() {
+        // Server hard-caps /api/session/start at 45s (asyncio.wait_for in main.py);
+        // 60s AbortController is a final client-side safety net.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        // Cycle copy so the wait feels intentional, not frozen.
+        const startedAt = performance.now();
+        loadingEl.textContent = LOADING_MESSAGES[0].text;
+        const loadingTicker = setInterval(() => {
+          const elapsedMs = performance.now() - startedAt;
+          const msg = LOADING_MESSAGES.filter((m) => m.atMs <= elapsedMs).pop();
+          if (msg) loadingEl.textContent = msg.text;
+        }, 1000);
         try {
           const r = await fetch("/api/session/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ language: "te", session_size: 5 }),
+            body: JSON.stringify({ language: "te" }),
+            signal: controller.signal,
           });
           if (!r.ok) throw new Error("session/start HTTP " + r.status);
           const data = await r.json();
@@ -134,13 +155,23 @@
           practiceEl.hidden = false;
           renderStep();
         } catch (err) {
-          loadingEl.textContent = "Could not start session — " + err.message;
+          const msg = err.name === "AbortError" ? "Session start timed out — please refresh." : err.message;
+          loadingEl.textContent = "Could not start session — " + msg;
           loadingEl.classList.add("error");
+        } finally {
+          clearTimeout(timeoutId);
+          clearInterval(loadingTicker);
         }
       }
 
+      function currentStepData() {
+        // SessionPlan steps are { step_data: RecognitionStep, target_skill, expected_difficulty }.
+        // The kid loop only reads from step_data; the wrapper metadata is for the parent dashboard.
+        return SESSION.steps[stepIdx].step_data;
+      }
+
       function renderStep() {
-        const step = SESSION.steps[stepIdx];
+        const step = currentStepData();
         stepState.locked = false;
         stepState.answered = false;
         stepState.attempts = 0;
@@ -167,7 +198,7 @@
         if (hearBtn.disabled) return;
         hearBtn.disabled = true;
         try {
-          const step = SESSION.steps[stepIdx];
+          const step = currentStepData();
           const r = await fetch("/api/pronounce", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -188,7 +219,7 @@
         if (stepState.locked || stepState.answered) return;
         stepState.locked = true;
         stepState.attempts += 1;
-        const step = SESSION.steps[stepIdx];
+        const step = currentStepData();
         const correct = chosen === step.target.character;
         const pool = correct ? step.feedback.positive : step.feedback.retry;
         const feedbackString = pickRandom(pool);

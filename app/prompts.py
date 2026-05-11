@@ -274,9 +274,12 @@ PLANNER_TOOLS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 
-# v1 — 2026-05-10 — first cut. System prompt for the agentic session planner
-# under the planner-bundling architecture (decisions.md 2026-05-10
-# "Architecture mitigation for free-tier reliability").
+# v1 — 2026-05-10 — first cut. revised 2026-05-11 — added explicit
+# distractor-uniqueness clause after Phase 5.5 step A4 caught a model
+# output where the target glyph appeared in its own distractor list.
+# System prompt for the agentic session planner under the planner-bundling
+# architecture (decisions.md 2026-05-10 "Architecture mitigation for
+# free-tier reliability").
 PLANNER_PROMPT_V1 = """\
 You are the session planner for Maatru, an early-literacy app that teaches \
 Indian children to read their mother tongue script (Telugu first, Hindi \
@@ -325,7 +328,10 @@ loop needs must be embedded in the SessionPlan you return now.
   * target: a LetterEntry with character + transliteration + language.
   * distractors: exactly 3 LetterEntry values. Drawn from the target's \
 confusion_set when the step is medium/hard, or from distinct categories \
-when easy.
+when easy. The 3 distractor glyphs MUST be distinct from each other AND \
+MUST NOT include the target glyph — the kid will tap one of 4 buttons \
+(target + 3 distractors) and a duplicated or self-referential option \
+breaks the question.
   * step_index: zero-based.
   * feedback: a FeedbackVariants object with exactly 3 'positive' strings \
 and exactly 2 'retry' strings. Vary tone (warm, energetic, gentle); avoid \

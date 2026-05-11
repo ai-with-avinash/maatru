@@ -75,14 +75,24 @@ def get_today_summary(db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, Any]:
 
     sessions: list[str] = []
     attempts_rows: list[sqlite3.Row] = []
+    session_plans: list[dict[str, Any]] = []
     with _connect(db_path) as conn:
         try:
-            sessions = [
-                r["id"] for r in conn.execute(
-                    "SELECT id FROM sessions WHERE started_at >= ? AND started_at < ?",
-                    (start_utc, end_utc),
-                ).fetchall()
-            ]
+            session_rows = conn.execute(
+                "SELECT id, started_at, fallback_used, reasoning, focus FROM sessions "
+                "WHERE started_at >= ? AND started_at < ? ORDER BY started_at ASC",
+                (start_utc, end_utc),
+            ).fetchall()
+            sessions = [r["id"] for r in session_rows]
+            for r in session_rows:
+                row = dict(r)
+                session_plans.append({
+                    "session_id": row["id"],
+                    "started_at": row["started_at"],
+                    "fallback_used": bool(row["fallback_used"]),
+                    "reasoning": row.get("reasoning"),
+                    "focus": row.get("focus"),
+                })
             if sessions:
                 placeholders = ",".join("?" * len(sessions))
                 attempts_rows = conn.execute(
@@ -118,6 +128,7 @@ def get_today_summary(db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, Any]:
         "attempts_total": attempts_total,
         "attempts_correct": attempts_correct,
         "letters_practiced": letters_practiced,
+        "session_plans": session_plans,
         "has_data": bool(sessions and attempts_total),
     }
 

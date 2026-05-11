@@ -1,0 +1,16 @@
+Gate 4 — Telugu TTS samples for human review
+speakingRate=0.85, encoding=MP3, languageCode=te-IN
+Rate each on (1) pronunciation accuracy and (2) child-appropriate naturalness, 1-5 scale.
+
+filename                         voice  translit       text
+------------------------------------------------------------------------
+vowel_A.mp3                      A      a              అ
+vowel_B.mp3                      B      a              అ
+consonant_A.mp3                  A      ka             క
+consonant_B.mp3                  B      ka             క
+greeting_A.mp3                   A      namaskaram     నమస్కారం
+greeting_B.mp3                   B      namaskaram     నమస్కారం
+word_A.mp3                       A      amma           అమ్మ
+word_B.mp3                       B      amma           అమ్మ
+encouragement_A.mp3              A      chala baga     చాలా బాగా
+encouragement_B.mp3              B      chala baga     చాలా బాగా
