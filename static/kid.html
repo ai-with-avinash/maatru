@@ -1,7 +1,7 @@
 <!doctype html>
-<!-- Phase 3 kid loop: hardcoded target అ + 3 distractors, one tap per round.
-     Feedback strings come from /api/check_recognition (Phase 3 hardcoded pool;
-     Phase 5.5 replaces with per-step FeedbackVariants from the planner). -->
+<!-- Phase 4 kid loop: real multi-step session backed by /api/session/start.
+     Feedback variants are picked client-side from the per-step pool the
+     backend ships. No Gemma 4 calls anywhere in this loop. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -19,74 +19,85 @@
         justify-content: center;
         padding: 2rem 1rem;
       }
-      .container {
-        max-width: 480px;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
-      }
+      .container { max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 1.5rem; }
+      .progress { text-align: center; color: #7a7a7a; font-size: 1rem; font-weight: 600; letter-spacing: 0.04em; }
+      #practice { display: flex; flex-direction: column; gap: 1.5rem; }
       .target-card {
-        text-align: center;
-        padding: 2rem 1rem;
-        background: #ffffff;
-        border-radius: 1rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        text-align: center; padding: 2rem 1rem; background: #ffffff;
+        border-radius: 1rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
       }
       .target-glyph { font-size: 6rem; font-weight: 700; line-height: 1; }
       .target-translit { font-size: 2rem; color: #7a7a7a; font-style: italic; margin-top: 0.5rem; }
       .hear-button {
-        background: #ff7a59;
-        color: white;
-        font-size: 1.25rem;
-        padding: 1rem 1.5rem;
-        border: none;
-        border-radius: 0.75rem;
-        cursor: pointer;
-        min-height: 60px;
+        background: #ff7a59; color: white; font-size: 1.25rem;
+        padding: 1rem 1.5rem; border: none; border-radius: 0.75rem;
+        cursor: pointer; min-height: 60px;
       }
       .hear-button:disabled { background: #f0bda9; cursor: default; }
+      .next-button {
+        background: #4caf50; color: white; font-size: 1.25rem;
+        padding: 1rem 1.5rem; border: none; border-radius: 0.75rem;
+        cursor: pointer; min-height: 60px;
+      }
       .options { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       .option {
-        font-size: 3rem;
-        padding: 1.25rem;
-        background: white;
-        border: 3px solid #e0d4c4;
-        border-radius: 1rem;
-        cursor: pointer;
-        min-height: 80px;
+        font-size: 3rem; padding: 1.25rem; background: white;
+        border: 3px solid #e0d4c4; border-radius: 1rem;
+        cursor: pointer; min-height: 80px;
       }
       .option:hover:not(:disabled) { background: #fff9f3; }
-      .option:disabled { cursor: default; opacity: 0.7; }
+      .option:disabled { cursor: default; opacity: 0.85; }
       .option.correct { border-color: #4caf50; background: #e8f5e9; }
       .option.wrong { border-color: #e53935; background: #fbeaea; }
       .feedback { text-align: center; font-size: 1.5rem; min-height: 2rem; }
-      .completion { text-align: center; font-size: 1rem; color: #7a7a7a; }
+      .end-card {
+        text-align: center; padding: 2.5rem 1.5rem; background: #ffffff;
+        border-radius: 1rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        display: flex; flex-direction: column; gap: 1.5rem;
+      }
+      .end-message { font-size: 1.5rem; line-height: 1.4; }
+      #loading { text-align: center; color: #7a7a7a; font-size: 1rem; }
+      .error { color: #e53935; text-align: center; font-size: 1rem; }
     </style>
   </head>
   <body>
     <main class="container">
-      <section class="target-card">
-        <div class="target-glyph">అ</div>
-        <div class="target-translit">a</div>
+      <div id="progress" class="progress" hidden></div>
+      <section id="practice" hidden>
+        <section class="target-card">
+          <div id="target-glyph" class="target-glyph"></div>
+          <div id="target-translit" class="target-translit"></div>
+        </section>
+        <button id="hear-button" type="button" class="hear-button">Hear it</button>
+        <audio id="audio-player" hidden></audio>
+        <section id="options" class="options" aria-label="Letter options"></section>
+        <div id="feedback" class="feedback" aria-live="polite"></div>
+        <button id="next-button" type="button" class="next-button" hidden>Next</button>
       </section>
-      <button id="hear-button" type="button" class="hear-button">Hear it</button>
-      <audio id="audio-player" hidden></audio>
-      <section class="options" id="options" aria-label="Letter options"></section>
-      <div id="feedback" class="feedback" aria-live="polite"></div>
-      <div id="completion" class="completion" hidden>You completed the loop! Reload to try again.</div>
+      <section id="end-card" class="end-card" hidden>
+        <div class="end-message">Great job! You practiced <span id="end-count"></span> letters today.</div>
+        <button id="restart-button" type="button" class="hear-button">New session</button>
+      </section>
+      <div id="loading">Loading session…</div>
     </main>
     <script>
-      const TARGET = "అ";
-      const DISTRACTORS = ["ఆ", "ఇ", "క"];
+      const SESSION = { id: null, steps: [], language: "te" };
+      let stepIdx = 0;
+      const stepState = { locked: false, answered: false, attempts: 0 };
 
-      const optionsEl = document.getElementById("options");
-      const feedbackEl = document.getElementById("feedback");
-      const completionEl = document.getElementById("completion");
+      const progressEl = document.getElementById("progress");
+      const practiceEl = document.getElementById("practice");
+      const endCardEl = document.getElementById("end-card");
+      const endCountEl = document.getElementById("end-count");
+      const loadingEl = document.getElementById("loading");
+      const targetGlyphEl = document.getElementById("target-glyph");
+      const targetTranslitEl = document.getElementById("target-translit");
       const hearBtn = document.getElementById("hear-button");
       const audioEl = document.getElementById("audio-player");
-
-      let answered = false;
+      const optionsEl = document.getElementById("options");
+      const feedbackEl = document.getElementById("feedback");
+      const nextBtn = document.getElementById("next-button");
+      const restartBtn = document.getElementById("restart-button");
 
       function shuffle(arr) {
         const a = [...arr];
@@ -97,13 +108,52 @@
         return a;
       }
 
-      function renderOptions() {
-        for (const letter of shuffle([TARGET, ...DISTRACTORS])) {
+      function pickRandom(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+      }
+
+      async function startSession() {
+        try {
+          const r = await fetch("/api/session/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ language: "te", session_size: 5 }),
+          });
+          if (!r.ok) throw new Error("session/start HTTP " + r.status);
+          const data = await r.json();
+          SESSION.id = data.session_id;
+          SESSION.language = data.language;
+          SESSION.steps = data.steps;
+          loadingEl.hidden = true;
+          progressEl.hidden = false;
+          practiceEl.hidden = false;
+          renderStep();
+        } catch (err) {
+          loadingEl.textContent = "Could not start session — " + err.message;
+          loadingEl.classList.add("error");
+        }
+      }
+
+      function renderStep() {
+        const step = SESSION.steps[stepIdx];
+        stepState.locked = false;
+        stepState.answered = false;
+        stepState.attempts = 0;
+        progressEl.textContent = `Letter ${stepIdx + 1} of ${SESSION.steps.length}`;
+        targetGlyphEl.textContent = step.target.character;
+        targetTranslitEl.textContent = step.target.transliteration;
+        feedbackEl.textContent = "";
+        nextBtn.hidden = true;
+        nextBtn.textContent = stepIdx + 1 === SESSION.steps.length ? "Done" : "Next";
+        optionsEl.innerHTML = "";
+        const allChoices = shuffle([step.target, ...step.distractors]);
+        for (const letter of allChoices) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "option";
-          btn.textContent = letter;
-          btn.addEventListener("click", () => handleChoice(letter, btn));
+          btn.textContent = letter.character;
+          btn.dataset.character = letter.character;
+          btn.addEventListener("click", () => handleChoice(letter.character, btn));
           optionsEl.appendChild(btn);
         }
       }
@@ -112,10 +162,11 @@
         if (hearBtn.disabled) return;
         hearBtn.disabled = true;
         try {
+          const step = SESSION.steps[stepIdx];
           const r = await fetch("/api/pronounce", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ character: TARGET, language: "te" }),
+            body: JSON.stringify({ character: step.target.character, language: SESSION.language }),
           });
           if (!r.ok) throw new Error("TTS HTTP " + r.status);
           const blob = await r.blob();
@@ -129,28 +180,72 @@
       }
 
       async function handleChoice(chosen, btn) {
-        if (answered) return;
-        answered = true;
+        if (stepState.locked || stepState.answered) return;
+        stepState.locked = true;
+        stepState.attempts += 1;
+        const step = SESSION.steps[stepIdx];
+        const correct = chosen === step.target.character;
+        const pool = correct ? step.feedback.positive : step.feedback.retry;
+        const feedbackString = pickRandom(pool);
+
+        btn.classList.add(correct ? "correct" : "wrong");
+        feedbackEl.textContent = feedbackString;
+
         try {
           const r = await fetch("/api/check_recognition", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target: TARGET, chosen }),
+            body: JSON.stringify({
+              session_id: SESSION.id,
+              step_index: step.step_index,
+              target: step.target.character,
+              chosen,
+              feedback_used: feedbackString,
+            }),
           });
           if (!r.ok) throw new Error("check HTTP " + r.status);
-          const data = await r.json();
-          btn.classList.add(data.correct ? "correct" : "wrong");
-          feedbackEl.textContent = data.feedback;
-          for (const b of optionsEl.querySelectorAll("button")) b.disabled = true;
-          completionEl.hidden = false;
+          await r.json();
         } catch (err) {
-          feedbackEl.textContent = "Check failed — " + err.message;
-          answered = false;
+          feedbackEl.textContent = "Could not record attempt — " + err.message;
         }
+
+        if (!correct && stepState.attempts === 1) {
+          btn.disabled = true;
+          stepState.locked = false;
+          return;
+        }
+
+        stepState.answered = true;
+        for (const b of optionsEl.querySelectorAll("button")) b.disabled = true;
+        nextBtn.hidden = false;
+      }
+
+      async function handleNext() {
+        const isLast = stepIdx + 1 === SESSION.steps.length;
+        if (!isLast) {
+          stepIdx += 1;
+          renderStep();
+          return;
+        }
+        try {
+          await fetch("/api/session/end", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: SESSION.id }),
+          });
+        } catch (_err) {
+          // session/end failure is non-fatal for the kid UI; attempts are already recorded.
+        }
+        practiceEl.hidden = true;
+        progressEl.hidden = true;
+        endCountEl.textContent = String(SESSION.steps.length);
+        endCardEl.hidden = false;
       }
 
       hearBtn.addEventListener("click", handleHear);
-      renderOptions();
+      nextBtn.addEventListener("click", handleNext);
+      restartBtn.addEventListener("click", () => location.reload());
+      startSession();
     </script>
   </body>
 </html>
