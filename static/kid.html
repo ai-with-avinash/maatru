@@ -18,11 +18,11 @@
         background: #fff5ec;
         color: #2d2d2d;
         min-height: 100vh;
-        display: flex;
-        justify-content: center;
         padding: 2rem 1rem;
       }
-      .container { max-width: 480px; width: 100%; display: flex; flex-direction: column; gap: 1.5rem; }
+      /* Center on wide viewports via auto margins (block-level); on narrow
+         viewports width:100% fills the available space (minus body padding). */
+      .container { max-width: 480px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
       .progress { text-align: center; color: #7a7a7a; font-size: 1rem; font-weight: 600; letter-spacing: 0.04em; }
       #practice { display: flex; flex-direction: column; gap: 1.5rem; }
       .target-card {

@@ -815,6 +815,12 @@ mobile. It anchors three states:
   600ms, starts 200ms after card finishes fading in). The end-card 
   itself fade-in-scales from 0.95 → 1.0 over 400ms.
 
+Layout fix during browser sign-off: kid welcome card and parent
+dashboard were rendering left-aligned on wide viewports because the
+.container had max-width but no margin-auto. Both pages fixed with
+margin: 0 auto on the container; mobile layouts unaffected because
+width: 100% still resolves auto margins to zero on narrow viewports.
+
 State machine update: welcome → loading → practice → end-card. 
 New session from end-card returns to loading directly (not back 
 to welcome — that would feel like restarting the app).
