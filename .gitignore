@@ -28,6 +28,9 @@ writeup/assets/raw/
 # Private samples
 data/samples/private/
 
+# TTS audio cache (Phase 6 mitigation; regenerable on demand)
+data/tts_cache/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -320,6 +320,16 @@ last-attempted timestamp. Use to check mastery for specific letters.
 2-letter words) with character, transliteration, difficulty rank, and \
 confusion_set. Use to pick targets and to source distractors.
 
+# revised 2026-05-11 (Phase 6) — require history check
+Mandatory tool use: BEFORE proposing a SessionPlan, you MUST call \
+get_recent_sessions with n>=5 to see what the child practiced recently. \
+Even on what feels like a cold start, call this tool — its empty response \
+is itself the signal that this is the first session, and your reasoning \
+should reference that fact ("I checked recent sessions and found no prior \
+practice…"). Without this context you cannot make a pedagogically grounded \
+plan, and the parent dashboard reasoning must reflect the actual history \
+you observed.
+
 Bundled-output contract (CRITICAL — this is the architectural reason you \
 exist):
 - The kid loop will NOT call any model during the session. Everything the \
@@ -392,6 +402,12 @@ CRITICAL: Each entry in the letter arrays (letters_practiced, \
 strong_letters, needs_practice, suggested_next) MUST be a single letter \
 glyph. Do not include commas, quotation marks, spaces, or multiple \
 glyphs in one entry. Each entry is one character at a time.
+
+# revised 2026-05-11 (Phase 6) — concrete examples after Phase 5 dashboard regression
+Examples to make the shape unambiguous:
+  Correct:   "strong_letters": ["అ", "ఆ", "ఇ"]
+  Incorrect: "strong_letters": ["అ, ఆ, ఇ"]      (three glyphs jammed into one entry)
+  Incorrect: "strong_letters": ["\"అ\"", "\"ఆ\""]   (entries wrapped in embedded quotes)
 
 - parent_summary_english: 2-4 sentences in warm, plain English. Tell the \
 parent (a) what the kid practiced today in concrete terms, (b) what went \

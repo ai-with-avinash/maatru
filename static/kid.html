@@ -52,6 +52,12 @@
       .option:disabled { cursor: default; opacity: 0.85; }
       .option.correct { border-color: #4caf50; background: #e8f5e9; }
       .option.wrong { border-color: #e53935; background: #fbeaea; }
+      /* Reveal-the-answer highlight: only after the second wrong tap, when the
+         step is finalized and the kid needs to learn "the answer was THAT one." */
+      .option.correct-answer-reveal {
+        border: 3px solid #4caf50;
+        box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.2);
+      }
       .feedback { text-align: center; font-size: 1.5rem; min-height: 2rem; }
       .end-card {
         text-align: center; padding: 2.5rem 1.5rem; background: #ffffff;
@@ -64,10 +70,65 @@
       .footer-link { text-align: center; margin-top: 1rem; }
       .footer-link a { color: #8a8a8a; font-size: 0.85rem; text-decoration: none; }
       .footer-link a:hover { text-decoration: underline; }
+      /* Visual identity (Phase 6): typographic మా anchor rendered in system
+         font, recurs at three sizes across welcome / loading / end-card. */
+      .brand-anchor {
+        font-size: 120px;
+        line-height: 1;
+        color: #ff7a59;
+        text-align: center;
+        margin-bottom: 1.5rem;
+      }
+      .brand-anchor.medium { font-size: 80px; }
+      .brand-anchor.small { font-size: 60px; }
+      @media (max-width: 600px) {
+        .brand-anchor { font-size: 80px; }
+        .brand-anchor.medium { font-size: 64px; }
+        .brand-anchor.small { font-size: 48px; }
+      }
+      .welcome-card {
+        text-align: center; padding: 3rem 1.5rem; background: #ffffff;
+        border-radius: 1rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        display: flex; flex-direction: column; gap: 1.25rem;
+      }
+      .welcome-title { font-size: 2.25rem; font-weight: 700; line-height: 1.1; margin: 0; }
+      .welcome-tagline { font-size: 1.35rem; color: #4a4a4a; line-height: 1.4; margin: 0; }
+      .welcome-translit { font-size: 1rem; color: #8a8a8a; font-style: italic; }
+      .welcome-gloss { font-size: 0.95rem; color: #8a8a8a; }
+      .start-button {
+        background: #ff7a59; color: white; font-size: 1.35rem; font-weight: 600;
+        padding: 1.15rem 1.75rem; border: none; border-radius: 0.75rem;
+        cursor: pointer; min-height: 64px; margin-top: 0.75rem;
+      }
+      .start-button:disabled { background: #f0bda9; cursor: default; }
+      /* Celebration on session end (Phase 6 step 4C). Card fades in + scales up,
+         anchor pulses once 600ms later. Animations are one-shot; the JS adds the
+         classes when transitioning into end-card and removes them on the next session. */
+      @keyframes cardArrive {
+        0%   { opacity: 0; transform: scale(0.95); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes anchorPulse {
+        0%   { transform: scale(1); }
+        50%  { transform: scale(1.1); }
+        100% { transform: scale(1); }
+      }
+      .end-card.arriving { animation: cardArrive 400ms ease-out; }
+      .end-card .brand-anchor.pulsing { animation: anchorPulse 600ms ease-out 600ms; }
     </style>
   </head>
   <body>
     <main class="container">
+      <section id="welcome" class="welcome-card">
+        <div class="brand-anchor" aria-hidden="true">మా</div>
+        <h1 class="welcome-title">Maatru</h1>
+        <div>
+          <div class="welcome-tagline">మనం చదువుదాం</div>
+          <div class="welcome-translit">manam chaduvudaam</div>
+          <div class="welcome-gloss">(let's read together)</div>
+        </div>
+        <button id="start-button" type="button" class="start-button">Start practice</button>
+      </section>
       <div id="progress" class="progress" hidden></div>
       <section id="practice" hidden>
         <section class="target-card">
@@ -81,10 +142,14 @@
         <button id="next-button" type="button" class="next-button" hidden>Next</button>
       </section>
       <section id="end-card" class="end-card" hidden>
+        <div class="brand-anchor medium" aria-hidden="true" id="end-anchor">మా</div>
         <div class="end-message">Great job! You practiced <span id="end-count"></span> letters today.</div>
         <button id="restart-button" type="button" class="hear-button">New session</button>
       </section>
-      <div id="loading">Loading session…</div>
+      <section id="loading-section" hidden>
+        <div class="brand-anchor small" aria-hidden="true">మా</div>
+        <div id="loading">Loading session…</div>
+      </section>
       <div class="footer-link"><a href="/parent">Parent dashboard</a></div>
     </main>
     <script>
@@ -92,10 +157,14 @@
       let stepIdx = 0;
       const stepState = { locked: false, answered: false, attempts: 0 };
 
+      const welcomeEl = document.getElementById("welcome");
+      const startBtn = document.getElementById("start-button");
       const progressEl = document.getElementById("progress");
       const practiceEl = document.getElementById("practice");
       const endCardEl = document.getElementById("end-card");
+      const endAnchorEl = document.getElementById("end-anchor");
       const endCountEl = document.getElementById("end-count");
+      const loadingSectionEl = document.getElementById("loading-section");
       const loadingEl = document.getElementById("loading");
       const targetGlyphEl = document.getElementById("target-glyph");
       const targetTranslitEl = document.getElementById("target-translit");
@@ -121,11 +190,22 @@
 
       const LOADING_MESSAGES = [
         { atMs: 0,     text: "Preparing today's letters…" },
-        { atMs: 10000, text: "Picking the right practice for today…" },
-        { atMs: 25000, text: "Almost ready…" },
+        { atMs: 5000,  text: "Picking the right practice for today…" },
+        { atMs: 10000, text: "Almost ready…" },
+        { atMs: 18000, text: "Just a moment more…" },
       ];
 
+      function showOnly(visibleEls) {
+        const all = [welcomeEl, loadingSectionEl, progressEl, practiceEl, endCardEl];
+        for (const el of all) el.hidden = !visibleEls.includes(el);
+      }
+
       async function startSession() {
+        showOnly([loadingSectionEl]);
+        loadingEl.classList.remove("error");
+        stepIdx = 0;
+        SESSION.id = null;
+        SESSION.steps = [];
         // Server hard-caps /api/session/start at 45s (asyncio.wait_for in main.py);
         // 60s AbortController is a final client-side safety net.
         const controller = new AbortController();
@@ -150,9 +230,7 @@
           SESSION.id = data.session_id;
           SESSION.language = data.language;
           SESSION.steps = data.steps;
-          loadingEl.hidden = true;
-          progressEl.hidden = false;
-          practiceEl.hidden = false;
+          showOnly([progressEl, practiceEl]);
           renderStep();
         } catch (err) {
           const msg = err.name === "AbortError" ? "Session start timed out — please refresh." : err.message;
@@ -253,6 +331,17 @@
 
         stepState.answered = true;
         for (const b of optionsEl.querySelectorAll("button")) b.disabled = true;
+        // Pedagogical reveal: if the kid finalized this step with a wrong answer
+        // (i.e. wrong on first AND second tap), surface the correct option so
+        // they leave the step knowing what the right glyph was.
+        if (!correct) {
+          for (const b of optionsEl.querySelectorAll("button")) {
+            if (b.dataset.character === step.target.character) {
+              b.classList.add("correct-answer-reveal");
+              break;
+            }
+          }
+        }
         nextBtn.hidden = false;
       }
 
@@ -272,16 +361,23 @@
         } catch (_err) {
           // session/end failure is non-fatal for the kid UI; attempts are already recorded.
         }
-        practiceEl.hidden = true;
-        progressEl.hidden = true;
         endCountEl.textContent = String(SESSION.steps.length);
-        endCardEl.hidden = false;
+        // Celebration: card fade-in-scale + anchor pulse. Animations self-clear.
+        endCardEl.classList.remove("arriving");
+        endAnchorEl.classList.remove("pulsing");
+        showOnly([endCardEl]);
+        // Force a reflow so the animation re-triggers if this is a second session in a row.
+        void endCardEl.offsetWidth;
+        endCardEl.classList.add("arriving");
+        endAnchorEl.classList.add("pulsing");
       }
 
       hearBtn.addEventListener("click", handleHear);
       nextBtn.addEventListener("click", handleNext);
-      restartBtn.addEventListener("click", () => location.reload());
-      startSession();
+      startBtn.addEventListener("click", startSession);
+      // New session from the end-card returns to loading directly (not back to
+      // welcome — that would feel like restarting the app).
+      restartBtn.addEventListener("click", startSession);
     </script>
   </body>
 </html>

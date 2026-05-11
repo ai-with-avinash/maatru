@@ -745,3 +745,102 @@ agentic call at session boundaries) is now production-validated:
   five vowels...") rather than as opaque AI behavior.
 
 Days remaining to deadline: 13.
+
+## 2026-05-11 — Phase 6 closed: polish, UX refinements, and visual identity
+
+The product gets its face. Welcome state with typographic మా anchor 
+greets the kid, the same anchor recurs in loading and end-card states, 
+celebration animation marks the end of each session. Pedagogical 
+gaps closed: planner now mandates history check, wrong-twice tap 
+reveals the correct answer, TTS audio caches across sessions.
+
+Captured polish items shipped:
+
+1. PLANNER_PROMPT_V1 revised (2026-05-11 Phase 6) — mandatory 
+   get_recent_sessions(n>=5) before proposing a SessionPlan, even 
+   on apparent cold-start. Verified via verify_phase5_5_planner.py: 
+   brand_new now explicitly references the history check ("I 
+   checked recent sessions and found no prior practice..."); 
+   vowels_strong correctly adapts ("The child has shown perfect 
+   mastery of all vowels over the last 5 sessions"). Addresses the 
+   Phase 5.5 session 3 regression where the planner skipped 
+   history and produced a near-duplicate cold-start plan.
+
+2. Loading messages cycle at 0/5/10/18s heartbeat (was 0/10/25s). 
+   Kid sees visible progress within the first 5 seconds instead 
+   of 10. Four messages total: "Preparing today's letters..." → 
+   "Picking the right practice for today..." → "Almost ready..." 
+   → "Just a moment more...".
+
+3. SESSION_SUMMARY_PROMPT_V1 revised (2026-05-11 Phase 6) — added 
+   concrete correct/incorrect glyph examples to the array-shape 
+   instructions. Belt-and-suspenders with the Phase 5 frontend 
+   filter; either should catch the bunched-string failure mode 
+   independently.
+
+TTS disk cache (decisions.md 2026-05-10 mitigation 3): data/tts_cache/
+holds MP3 bytes keyed by sha256(text|voice|language). Cache hit 
+returns instantly; miss synthesizes via Google Cloud TTS, writes to 
+cache, returns audio. Verified MISS/HIT/MISS pattern via curl. 
+Across the 25-letter curriculum, expected hit rate is high after 
+one warm session. data/tts_cache/ in .gitignore.
+
+UX refinements:
+- Wrong-twice correct-answer reveal: after the kid taps wrong twice 
+  on a step, the correct option gets a green border + glow before 
+  the Next button advances. Browser-verified — pedagogical moment 
+  visible. Five lines of CSS + JS.
+- Parent dashboard empty-state copy rewrite: removed "·" placeholder 
+  character, more inviting body text ("When your child finishes a 
+  session, today's recap will appear here with strengths, struggles, 
+  and what to work on next").
+
+Visual identity (the largest Phase 6 item):
+
+The app gets a typographic anchor: a stylized మా (the "Maa" in 
+Maatru, which also means "mother" in Telugu) in the brand coral 
+(#ff7a59), rendered in system-ui at 120px on desktop / 80px on 
+mobile. It anchors three states:
+
+- Welcome state (NEW): replaces the auto-start session that was 
+  there before. Kid sees the large మా, "Maatru" heading, Telugu 
+  tagline "మనం చదువుదాం" with English transliteration "manam 
+  chaduvudaam" and gloss "(let's read together)", and a large 
+  "Start practice" CTA. Browser-verified — composition reads as 
+  warm and deliberate, not utilitarian.
+- Loading state: same anchor at 60px above cycling messages. 
+  Visual continuity — the app's face is still there during the wait.
+- End-of-session card: same anchor at 80px above "Great job!" 
+  message, with a pulse animation (scale 1.0 → 1.1 → 1.0 over 
+  600ms, starts 200ms after card finishes fading in). The end-card 
+  itself fade-in-scales from 0.95 → 1.0 over 400ms.
+
+State machine update: welcome → loading → practice → end-card. 
+New session from end-card returns to loading directly (not back 
+to welcome — that would feel like restarting the app).
+
+All visual identity work is typographic + CSS @keyframes only — 
+no custom fonts, no illustration assets, no JavaScript animation 
+libraries.
+
+Observed kid loop latency from Start tap to letter visible: 5-15s 
+typical, consistent with Gate 5 baseline. Cycling messages cover 
+the wait. This is the expected v1 cost of agentic decision-making. 
+Captured for v2: pre-warm the planner on welcome-state display 
+rather than on Start tap to hide the latency entirely. Architecture 
+supports it cleanly; deferred to v2 to keep Phase 6 from sliding.
+
+Phase 7 writeup hook: the welcome state photographs well and is 
+the natural opening shot for the demo video. The end-card 
+celebration is the natural closing shot. Both bookend the 
+contest narrative cleanly.
+
+Hard out of scope items (captured for v2):
+- Words and rhymes (their own product features, each comparable 
+  to one of the build phases done here)
+- Full alphabet expansion beyond the 25-letter v1 curriculum
+- Read-aloud track (needs STT integration and Telugu phoneme 
+  evaluation; a half-day to full-day of work)
+- Pre-warming the planner
+
+Days remaining to deadline: 12.
