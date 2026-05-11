@@ -7,10 +7,12 @@ deterministic distractors + FALLBACK_FEEDBACK_VARIANTS. The kid loop reads
 from that payload only. Phase 5.5 swaps the producer to the agentic planner;
 the shape stays identical.
 """
+import asyncio
+import hashlib
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Cookie, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -20,12 +22,35 @@ from app.curriculum import (
     select_distractors,
     select_session_letters,
 )
-from app.session import create_session, end_session, init_db, record_attempt
+from app.parent import generate_english_summary, get_today_summary
+from app.session import (
+    create_session,
+    end_session,
+    get_parent_pin,
+    init_db,
+    is_parent_pin_default,
+    record_attempt,
+    set_parent_pin,
+)
 from app.tts import synthesize
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _STATIC_DIR = _REPO_ROOT / "static"
 _KID_HTML = _STATIC_DIR / "kid.html"
+_PARENT_HTML = _STATIC_DIR / "parent.html"
+_COOKIE_NAME = "maatru_parent"
+_WRONG_PIN_SLEEP_S = 0.5
+
+
+def _pin_token(pin: str) -> str:
+    return "ok-" + hashlib.sha256(pin.encode("utf-8")).hexdigest()[:32]
+
+
+async def require_parent_auth(maatru_parent: str | None = Cookie(default=None)) -> None:
+    init_db()
+    expected = _pin_token(get_parent_pin())
+    if maatru_parent != expected:
+        raise HTTPException(status_code=401, detail="parent auth required")
 
 
 class PronounceRequest(BaseModel):
@@ -72,7 +97,21 @@ class SessionEndRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
 
 
-app = FastAPI(title="Maatru", version="0.2.0")
+class ParentLoginRequest(BaseModel):
+    pin: str = Field(..., min_length=1)
+
+
+class ParentLoginResponse(BaseModel):
+    ok: bool
+    must_change_pin: bool
+
+
+class ParentChangePinRequest(BaseModel):
+    current_pin: str = Field(..., min_length=1)
+    new_pin: str = Field(..., min_length=1)
+
+
+app = FastAPI(title="Maatru", version="0.3.0")
 
 
 @app.get("/healthz")
@@ -130,3 +169,52 @@ async def api_check_recognition(req: CheckRequest) -> CheckResponse:
 async def api_session_end(req: SessionEndRequest) -> dict[str, bool]:
     end_session(req.session_id)
     return {"ok": True}
+
+
+@app.get("/parent")
+async def parent_root() -> FileResponse:
+    if not _PARENT_HTML.is_file():
+        raise HTTPException(status_code=500, detail="parent.html missing")
+    return FileResponse(_PARENT_HTML, media_type="text/html")
+
+
+@app.post("/api/parent/login", response_model=ParentLoginResponse)
+async def api_parent_login(req: ParentLoginRequest, response: Response) -> ParentLoginResponse:
+    init_db()
+    if req.pin != get_parent_pin():
+        await asyncio.sleep(_WRONG_PIN_SLEEP_S)
+        raise HTTPException(status_code=401, detail="incorrect PIN")
+    response.set_cookie(_COOKIE_NAME, _pin_token(req.pin), httponly=True, samesite="strict", path="/")
+    return ParentLoginResponse(ok=True, must_change_pin=is_parent_pin_default())
+
+
+@app.post("/api/parent/change_pin")
+async def api_parent_change_pin(
+    req: ParentChangePinRequest,
+    response: Response,
+    _auth: None = Depends(require_parent_auth),
+) -> dict[str, bool]:
+    if req.current_pin != get_parent_pin():
+        raise HTTPException(status_code=403, detail="current PIN incorrect")
+    try:
+        set_parent_pin(req.new_pin)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    response.set_cookie(_COOKIE_NAME, _pin_token(req.new_pin), httponly=True, samesite="strict", path="/")
+    return {"ok": True}
+
+
+@app.get("/api/parent/today")
+async def api_parent_today(_auth: None = Depends(require_parent_auth)) -> dict:
+    today_data = get_today_summary()
+    summary = await generate_english_summary(today_data)
+    summary_keys = ("parent_summary_english", "strong_letters", "needs_practice", "suggested_next")
+    return {
+        "date_label": today_data["date_label"],
+        "sessions_today": today_data["sessions_today"],
+        "attempts_total": today_data["attempts_total"],
+        "attempts_correct": today_data["attempts_correct"],
+        "letters_practiced": today_data["letters_practiced"],
+        "summary": {k: summary.get(k, []) if k != "parent_summary_english" else summary.get(k, "") for k in summary_keys},
+        "summary_error": summary.get("error"),
+    }

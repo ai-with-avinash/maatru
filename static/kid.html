@@ -9,6 +9,7 @@
     <title>Maatru</title>
     <style>
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         font-family: system-ui, -apple-system, sans-serif;
@@ -58,6 +59,9 @@
       .end-message { font-size: 1.5rem; line-height: 1.4; }
       #loading { text-align: center; color: #7a7a7a; font-size: 1rem; }
       .error { color: #e53935; text-align: center; font-size: 1rem; }
+      .footer-link { text-align: center; margin-top: 1rem; }
+      .footer-link a { color: #8a8a8a; font-size: 0.85rem; text-decoration: none; }
+      .footer-link a:hover { text-decoration: underline; }
     </style>
   </head>
   <body>
@@ -79,6 +83,7 @@
         <button id="restart-button" type="button" class="hear-button">New session</button>
       </section>
       <div id="loading">Loading session…</div>
+      <div class="footer-link"><a href="/parent">Parent dashboard</a></div>
     </main>
     <script>
       const SESSION = { id: null, steps: [], language: "te" };

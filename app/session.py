@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS attempts (
 
 _INDEX_ATTEMPTS_TARGET = "CREATE INDEX IF NOT EXISTS idx_attempts_target ON attempts(target)"
 
+_SCHEMA_SETTINGS = """\
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)
+"""
+
+_DEFAULT_PARENT_PIN = "4242"
+
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -68,6 +78,7 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
         conn.execute(_SCHEMA_SESSIONS)
         conn.execute(_SCHEMA_ATTEMPTS)
         conn.execute(_INDEX_ATTEMPTS_TARGET)
+        conn.execute(_SCHEMA_SETTINGS)
 
 
 def create_session(
@@ -105,6 +116,46 @@ def record_attempt(
 def end_session(session_id: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as conn:
         conn.execute("UPDATE sessions SET ended_at = ? WHERE id = ?", (_now_utc_iso(), session_id))
+
+
+def get_setting(key: str, default: str | None = None, db_path: str | Path = DEFAULT_DB_PATH) -> str | None:
+    """Return the stored value for `key`, or `default` if the row (or table) is absent."""
+    with _connect(db_path) as conn:
+        try:
+            cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+        except sqlite3.OperationalError:
+            return default
+    return row["value"] if row is not None else default
+
+
+def set_setting(key: str, value: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, value, _now_utc_iso()),
+        )
+
+
+def get_parent_pin(db_path: str | Path = DEFAULT_DB_PATH) -> str:
+    """Return the stored parent PIN, or the default '4242' if never set."""
+    stored = get_setting("parent_pin", default=None, db_path=db_path)
+    return stored if stored is not None else _DEFAULT_PARENT_PIN
+
+
+def set_parent_pin(new_pin: str, db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    """Validate (3-6 digits, numeric) and persist a new parent PIN."""
+    if not isinstance(new_pin, str) or not new_pin.isdigit() or not (3 <= len(new_pin) <= 6):
+        raise ValueError("parent PIN must be 3-6 numeric digits")
+    set_setting("parent_pin", new_pin, db_path=db_path)
+    set_setting("parent_pin_changed", "1", db_path=db_path)
+
+
+def is_parent_pin_default(db_path: str | Path = DEFAULT_DB_PATH) -> bool:
+    """True iff the parent PIN has never been changed from the default."""
+    flag = get_setting("parent_pin_changed", default="0", db_path=db_path)
+    return flag != "1"
 
 
 def get_letter_attempts(letter: str, db_path: str | Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:

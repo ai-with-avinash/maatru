@@ -1,9 +1,421 @@
 <!doctype html>
-<!-- Parent dashboard UI: English summaries of the kid's Telugu practice. Implemented in Phase 5. -->
+<!-- Phase 5 parent dashboard. PIN gate, change-PIN-on-first-login, today-only view.
+     /api/parent/today fires one Gemma 4 call per load (no retry); failures
+     degrade gracefully — data renders, summary card shows a stub line. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Maatru — Parent</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maatru · Parent dashboard</title>
+    <style>
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #fff5ec;
+        color: #2d2d2d;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        padding: 2rem 1rem 4rem;
+      }
+      .container { max-width: 640px; width: 100%; display: flex; flex-direction: column; gap: 1.5rem; }
+      .brand { font-size: 1rem; font-weight: 600; color: #ff7a59; letter-spacing: 0.08em; text-transform: uppercase; }
+      h1, h2 { margin: 0; line-height: 1.2; }
+      h1 { font-size: 2rem; font-weight: 700; }
+      h2 { font-size: 1.25rem; font-weight: 600; color: #4a4a4a; }
+      .card {
+        background: #ffffff;
+        border-radius: 1rem;
+        padding: 1.75rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      }
+      .card-spacious { padding: 2.25rem; }
+      .row { display: flex; flex-direction: column; gap: 1rem; }
+      .field { display: flex; flex-direction: column; gap: 0.4rem; }
+      label { font-size: 0.9rem; color: #4a4a4a; }
+      input[type="text"], input[type="password"] {
+        font-size: 1.25rem;
+        padding: 0.75rem 1rem;
+        border: 2px solid #e0d4c4;
+        border-radius: 0.6rem;
+        background: #fff9f3;
+        font-family: inherit;
+        letter-spacing: 0.2em;
+      }
+      input:focus { outline: none; border-color: #ff7a59; }
+      .btn-primary {
+        background: #ff7a59;
+        color: white;
+        font-size: 1.1rem;
+        font-weight: 600;
+        padding: 0.9rem 1.25rem;
+        border: none;
+        border-radius: 0.6rem;
+        cursor: pointer;
+      }
+      .btn-primary:disabled { background: #f0bda9; cursor: default; }
+      .error { color: #c43b35; font-size: 0.95rem; min-height: 1.2rem; }
+      .muted { color: #8a8a8a; font-size: 0.95rem; }
+      .stats-row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+      .stat { flex: 1 1 auto; min-width: 8rem; }
+      .stat-num { font-size: 2rem; font-weight: 700; }
+      .stat-label { font-size: 0.85rem; color: #6a6a6a; text-transform: uppercase; letter-spacing: 0.05em; }
+      .summary-card { border-left: 6px solid #ff7a59; }
+      .summary-text { font-size: 1.15rem; line-height: 1.6; }
+      .letters-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+        gap: 0.85rem;
+      }
+      .letter-cell {
+        background: #fff9f3;
+        border: 2px solid #f0e4d3;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        text-align: center;
+      }
+      .letter-cell.strong { border-color: #b6dfb8; background: #f1f9f1; }
+      .letter-cell.needs { border-color: #f3c08a; background: #fff4e7; }
+      .letter-glyph { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+      .letter-translit { font-size: 0.95rem; color: #6a6a6a; font-style: italic; }
+      .letter-stat { font-size: 0.85rem; color: #4a4a4a; margin-top: 0.2rem; }
+      .pill-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        background: #fff9f3;
+        border: 1px solid #e0d4c4;
+        border-radius: 999px;
+        padding: 0.35rem 0.85rem;
+        font-size: 1.1rem;
+      }
+      .pill.strong { background: #f1f9f1; border-color: #b6dfb8; }
+      .pill.needs { background: #fff4e7; border-color: #f3c08a; }
+      .empty { text-align: center; padding: 2rem 1rem; color: #6a6a6a; }
+      .empty-icon { font-size: 2.5rem; line-height: 1; margin-bottom: 0.5rem; color: #ff7a59; }
+      .header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+      .header-row .header-link a { color: #8a8a8a; font-size: 0.85rem; text-decoration: none; }
+      .header-row .header-link a:hover { text-decoration: underline; }
+      .dashboard-actions { display: flex; gap: 1rem; align-items: center; }
+      .dashboard-actions a { color: #8a8a8a; font-size: 0.85rem; text-decoration: none; cursor: pointer; }
+      .dashboard-actions a:hover { text-decoration: underline; }
+      .toast {
+        position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+        background: #2d2d2d; color: white; padding: 0.75rem 1.25rem;
+        border-radius: 999px; font-size: 0.95rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      }
+      .btn-secondary {
+        background: transparent; color: #6a6a6a; font-size: 1rem;
+        padding: 0.75rem 1.25rem; border: 1px solid #d0c4b4; border-radius: 0.6rem;
+        cursor: pointer;
+      }
+      .btn-secondary:hover { background: #fff9f3; }
+    </style>
   </head>
-  <body></body>
+  <body>
+    <main class="container">
+      <header>
+        <div class="header-row">
+          <div class="brand">Maatru</div>
+          <div class="header-link"><a href="/">Back to practice</a></div>
+        </div>
+        <h1>Parent dashboard</h1>
+      </header>
+
+      <section id="login-section" class="card card-spacious" hidden>
+        <h2>Enter your PIN</h2>
+        <p class="muted">Default PIN is <strong>4242</strong>. You will be asked to change it after first sign-in.</p>
+        <div class="row">
+          <div class="field">
+            <label for="login-pin">PIN</label>
+            <input type="password" id="login-pin" inputmode="numeric" autocomplete="off" maxlength="6" />
+          </div>
+          <button id="login-btn" class="btn-primary" type="button">Sign in</button>
+          <div id="login-error" class="error"></div>
+        </div>
+      </section>
+
+      <section id="change-pin-section" class="card card-spacious" hidden>
+        <h2>Set a new PIN</h2>
+        <p class="muted">Pick 3 to 6 digits. You will use this to open the parent dashboard.</p>
+        <div class="row">
+          <div class="field">
+            <label for="current-pin">Current PIN</label>
+            <input type="password" id="current-pin" inputmode="numeric" autocomplete="off" maxlength="6" />
+          </div>
+          <div class="field">
+            <label for="new-pin">New PIN</label>
+            <input type="password" id="new-pin" inputmode="numeric" autocomplete="off" maxlength="6" />
+          </div>
+          <div class="field">
+            <label for="confirm-pin">Confirm new PIN</label>
+            <input type="password" id="confirm-pin" inputmode="numeric" autocomplete="off" maxlength="6" />
+          </div>
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+            <button id="change-pin-btn" class="btn-primary" type="button">Update PIN</button>
+            <button id="change-pin-cancel-btn" class="btn-secondary" type="button" hidden>Cancel</button>
+          </div>
+          <div id="change-pin-error" class="error"></div>
+        </div>
+      </section>
+
+      <section id="dashboard-section" hidden>
+        <div id="dashboard-loading" class="muted">Loading today's practice…</div>
+        <div id="dashboard-content" hidden style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <div class="card">
+            <div class="header-row">
+              <h2 id="date-label">Today</h2>
+              <div class="dashboard-actions">
+                <a id="change-pin-link" role="button" tabindex="0">Change PIN</a>
+              </div>
+            </div>
+            <div class="stats-row" style="margin-top: 1rem;">
+              <div class="stat">
+                <div class="stat-num" id="sessions-num">0</div>
+                <div class="stat-label">Sessions today</div>
+              </div>
+              <div class="stat">
+                <div class="stat-num" id="attempts-num">0 of 0</div>
+                <div class="stat-label">Letters correct</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card summary-card">
+            <h2>How it went today</h2>
+            <p id="summary-text" class="summary-text"></p>
+            <div id="summary-error-line" class="muted" hidden>Summary unavailable — refresh to try again.</div>
+          </div>
+
+          <div id="letters-card" class="card">
+            <h2>Letters practiced</h2>
+            <div id="letters-grid" class="letters-grid" style="margin-top: 1rem;"></div>
+          </div>
+
+          <div id="strong-card" class="card" hidden>
+            <h2>Strong today</h2>
+            <div id="strong-pills" class="pill-list" style="margin-top: 0.75rem;"></div>
+          </div>
+
+          <div id="needs-card" class="card" hidden>
+            <h2>Could use more practice</h2>
+            <div id="needs-pills" class="pill-list" style="margin-top: 0.75rem;"></div>
+          </div>
+
+          <div id="suggested-card" class="card" hidden>
+            <h2>Tomorrow could include</h2>
+            <div id="suggested-pills" class="pill-list" style="margin-top: 0.75rem;"></div>
+          </div>
+        </div>
+
+        <div id="empty-state" class="card empty" hidden>
+          <div class="empty-icon">·</div>
+          <h2>No practice yet today</h2>
+          <p class="muted">When your child opens Maatru and finishes a session, today's recap will appear here.</p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let voluntaryChangePin = false;
+
+      function show(id) { $(id).hidden = false; }
+      function hide(id) { $(id).hidden = true; }
+      function showOnly(...ids) {
+        for (const sec of ["login-section", "change-pin-section", "dashboard-section"]) hide(sec);
+        for (const id of ids) show(id);
+      }
+
+      function showToast(message, ms = 2000) {
+        const t = $("toast");
+        t.textContent = message;
+        t.hidden = false;
+        setTimeout(() => { t.hidden = true; }, ms);
+      }
+
+      function clearChangePinFields() {
+        $("current-pin").value = "";
+        $("new-pin").value = "";
+        $("confirm-pin").value = "";
+        $("change-pin-error").textContent = "";
+      }
+
+      function openChangePinFromDashboard() {
+        voluntaryChangePin = true;
+        clearChangePinFields();
+        $("change-pin-cancel-btn").hidden = false;
+        showOnly("change-pin-section");
+        $("current-pin").focus();
+      }
+
+      function cancelChangePin() {
+        voluntaryChangePin = false;
+        clearChangePinFields();
+        $("change-pin-cancel-btn").hidden = true;
+        showOnly("dashboard-section");
+      }
+
+      async function postJSON(url, body) {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          credentials: "same-origin",
+        });
+        const ct = r.headers.get("content-type") || "";
+        const data = ct.includes("application/json") ? await r.json() : null;
+        return { ok: r.ok, status: r.status, data };
+      }
+
+      async function fetchToday() {
+        const r = await fetch("/api/parent/today", { credentials: "same-origin" });
+        if (r.status === 401) return { authed: false };
+        const data = await r.json();
+        return { authed: true, data };
+      }
+
+      async function bootstrap() {
+        const result = await fetchToday();
+        if (!result.authed) {
+          showOnly("login-section");
+          $("login-pin").focus();
+          return;
+        }
+        showOnly("dashboard-section");
+        renderDashboard(result.data);
+      }
+
+      async function handleLogin() {
+        $("login-error").textContent = "";
+        const pin = $("login-pin").value.trim();
+        const btn = $("login-btn");
+        btn.disabled = true;
+        const { ok, status, data } = await postJSON("/api/parent/login", { pin });
+        btn.disabled = false;
+        if (!ok) {
+          $("login-error").textContent = status === 401 ? "Incorrect PIN — try again." : "Something went wrong.";
+          return;
+        }
+        if (data && data.must_change_pin) {
+          showOnly("change-pin-section");
+          $("current-pin").value = pin;
+          $("new-pin").focus();
+          return;
+        }
+        showOnly("dashboard-section");
+        const today = await fetchToday();
+        if (today.authed) renderDashboard(today.data);
+      }
+
+      async function handleChangePin() {
+        $("change-pin-error").textContent = "";
+        const current = $("current-pin").value.trim();
+        const next = $("new-pin").value.trim();
+        const confirm = $("confirm-pin").value.trim();
+        if (next !== confirm) {
+          $("change-pin-error").textContent = "New PIN and confirmation do not match.";
+          return;
+        }
+        if (!/^[0-9]{3,6}$/.test(next)) {
+          $("change-pin-error").textContent = "PIN must be 3 to 6 digits.";
+          return;
+        }
+        const btn = $("change-pin-btn");
+        btn.disabled = true;
+        const { ok, status } = await postJSON("/api/parent/change_pin", { current_pin: current, new_pin: next });
+        btn.disabled = false;
+        if (!ok) {
+          $("change-pin-error").textContent = status === 403 ? "Current PIN was wrong." : "Update failed.";
+          return;
+        }
+        const wasVoluntary = voluntaryChangePin;
+        voluntaryChangePin = false;
+        clearChangePinFields();
+        $("change-pin-cancel-btn").hidden = true;
+        showOnly("dashboard-section");
+        if (wasVoluntary) {
+          showToast("PIN updated");
+          return;
+        }
+        const today = await fetchToday();
+        if (today.authed) renderDashboard(today.data);
+      }
+
+      function renderDashboard(data) {
+        hide("dashboard-loading");
+        $("date-label").textContent = data.date_label;
+        if (!data.letters_practiced || data.letters_practiced.length === 0) {
+          show("empty-state");
+          return;
+        }
+        show("dashboard-content");
+        $("sessions-num").textContent = String(data.sessions_today);
+        $("attempts-num").textContent = `${data.attempts_correct} of ${data.attempts_total}`;
+
+        if (data.summary_error) {
+          $("summary-text").textContent = "";
+          show("summary-error-line");
+        } else {
+          $("summary-text").textContent = (data.summary && data.summary.parent_summary_english) || "";
+          hide("summary-error-line");
+        }
+
+        const grid = $("letters-grid");
+        grid.innerHTML = "";
+        for (const L of data.letters_practiced) {
+          const cell = document.createElement("div");
+          let klass = "";
+          if (L.accuracy_pct >= 80) klass = "strong";
+          else if (L.accuracy_pct < 60) klass = "needs";
+          cell.className = "letter-cell " + klass;
+          cell.innerHTML = `<div class="letter-glyph">${L.character}</div>` +
+            `<div class="letter-translit">${L.transliteration}</div>` +
+            `<div class="letter-stat">${L.correct} of ${L.attempts}</div>`;
+          grid.appendChild(cell);
+        }
+
+        renderPillSection("strong-card", "strong-pills", data.summary && data.summary.strong_letters, "strong");
+        renderPillSection("needs-card", "needs-pills", data.summary && data.summary.needs_practice, "needs");
+        renderPillSection("suggested-card", "suggested-pills", data.summary && data.summary.suggested_next, "");
+      }
+
+      function renderPillSection(cardId, pillsId, items, klass) {
+        // Defensive filter: the model occasionally emits "ఇ, ఆ, జ" as one
+        // string or duplicate entries. Drop anything that is not a single
+        // short glyph token and dedupe.
+        const cleaned = (items || []).filter((x) => {
+          if (typeof x !== "string") return false;
+          const trimmed = x.trim();
+          if (trimmed.length === 0) return false;
+          if (trimmed.length > 4) return false;
+          if (/[,"\s]/.test(trimmed)) return false;
+          return true;
+        });
+        const unique = [...new Set(cleaned)];
+        if (unique.length === 0) { hide(cardId); return; }
+        const container = $(pillsId);
+        container.innerHTML = "";
+        for (const ch of unique) {
+          const pill = document.createElement("span");
+          pill.className = "pill " + klass;
+          pill.textContent = ch;
+          container.appendChild(pill);
+        }
+        show(cardId);
+      }
+
+      $("login-btn").addEventListener("click", handleLogin);
+      $("login-pin").addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
+      $("change-pin-btn").addEventListener("click", handleChangePin);
+      $("change-pin-cancel-btn").addEventListener("click", cancelChangePin);
+      $("change-pin-link").addEventListener("click", openChangePinFromDashboard);
+      $("change-pin-link").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") openChangePinFromDashboard(); });
+      bootstrap();
+    </script>
+  </body>
 </html>

@@ -359,8 +359,10 @@ Output:
 """
 
 
-# v1 — 2026-05-10 — first cut. Prompt for the parent-dashboard English
-# summary generator (Phase 5). One Gemma 4 call per dashboard load.
+# v1 — 2026-05-10 — first cut. revised 2026-05-11 — added single-glyph
+# clarification to array fields after dashboard showed jammed pills.
+# Prompt for the parent-dashboard English summary generator (Phase 5).
+# One Gemma 4 call per dashboard load.
 SESSION_SUMMARY_PROMPT_V1 = """\
 You are writing the daily progress summary for a parent who speaks the \
 mother tongue (Telugu or Hindi) fluently but cannot reliably read its \
@@ -379,6 +381,12 @@ retries, or with >=80% accuracy across multiple attempts in the session.
 <60% accuracy in the session.
 - suggested_next: 2-4 letters or skill labels the parent could expect to \
 see in tomorrow's session, given today's progress.
+
+CRITICAL: Each entry in the letter arrays (letters_practiced, \
+strong_letters, needs_practice, suggested_next) MUST be a single letter \
+glyph. Do not include commas, quotation marks, spaces, or multiple \
+glyphs in one entry. Each entry is one character at a time.
+
 - parent_summary_english: 2-4 sentences in warm, plain English. Tell the \
 parent (a) what the kid practiced today in concrete terms, (b) what went \
 well, (c) what needs reinforcement. Avoid jargon, percentages, and \
