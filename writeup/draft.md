@@ -1,86 +1,31 @@
-# The Problem
-
-## Why Existing Solutions Fail
-
-## Why Gemma 4
-
-Maatru is built around four Gemma 4 capabilities that the eval suite
-confirmed are real, plus one capability that the eval suite confirmed
-is *not* real for this language and that the architecture now avoids.
-
-**1. Multilingual text generation (Gate 2 PASS).** Gemma 4 generates
-every piece of Telugu content the kid sees: distractor letters,
-feedback phrases, 2-letter practice words, and the rhymes used in the
-optional read-aloud track. A Telugu-literate reviewer rated 8 of 10
-cloud generation outputs as correct and age-appropriate for 5-8 year
-olds in the Day-1 evaluation
-(`eval/results/telugu_generation_20260509T191017Z.json`). No curated
-content database — the model produces Telugu output natively, with no
-translation layer. The same path generalizes to Hindi via a one-field
-config change.
-
-**2. Native function calling with structured outputs (Gate 6 PASS).**
-Phase 2's smoke test forced tool calls across two runs to
-`google/gemma-4-31b-it:free` via OpenRouter; 8 of 8 model responses
-returned valid tool calls and 8 of 8 parsed cleanly into a Pydantic
-`LetterEntry`. Median latency was 3.5s, max 9.3s — within the 10s
-planner budget. This makes the entire session planner possible:
-`SessionPlan`, `RecognitionStep`, `FeedbackVariants`, and
-`SessionSummary` all flow through function calling, so the JSON
-contracts are guaranteed shape, not prompt-engineering luck.
-
-**3. 256K context for stateless session reasoning.** The session
-planner reads the kid's full curriculum, recent history, and
-per-letter accuracy in a single call via three read-only SQLite
-tools — no vector DB, no RAG. The 256K window makes that
-simplification possible. It also lets the planner *bundle* every
-step's distractors and feedback variants into its single response —
-the architectural answer to Gate 5's stress test, which showed
-OpenRouter's free tier hard-caps at 20 req/min with ~36% upstream
-502s under sustained load. Even when calls succeed, p95 latency was
-15.4 seconds — too slow for the kid's tap loop. Bundling collapses
-a naïve ~14-call kid session into one planner call at session
-start, plus zero model calls during the practice loop.
-
-**4. Configurable thinking mode for the planner.** Thinking mode tells
-Gemma 4 to spend extra reasoning tokens before answering — a hidden
-scratchpad that improves multi-step decisions at the cost of a few
-extra seconds. Maatru uses it in exactly one place: the agentic session
-planner. The kid loop runs with it off: consistency and sub-second
-responsiveness matter more than reasoning depth, and a 5-year-old
-tapping a letter does not benefit from the model second-guessing
-itself. The planner has to reason over recent attempts, identify
-mastery patterns, and pair confusable letters deliberately — exactly
-the kind of multi-step decision thinking mode exists for. The 3-5s
-latency it pays is invisible to the kid — a single "Starting today's
-practice…" screen before the first letter appears. Two layers, two
-design rules, one model.
-
-**What Gemma 4 is NOT used for in v1: Indic-script vision.** Day-1
-Gate 3 evaluation showed Gemma 4 reads Telugu handwriting at 5%
-local accuracy and 20% cloud accuracy, including 20% on
-perfectly-rendered typed reference characters. This is a model
-training-data gap, not an engineering bug. The product was
-redesigned around it; the writeup is honest about it; v2 will
-revisit when the capability catches up.
+*This is a submission for the [Gemma 4 Challenge: Build with Gemma 4](https://dev.to/challenges/google-gemma-2026-05-06)*
 
 ## What I Built
 
-## How It Works
+I'm from Hyderabad, India. My wife and I both grew up speaking Telugu — it's our mother tongue. We have two daughters, three and one and a half. They're at a daycare where the teachers cover English letters and rhymes, sometimes Hindi, but not Telugu. And here's the part that's harder to admit: my wife and I haven't read or written Telugu in any real way for years. We can speak it fluently, but we lost the script somewhere along the way. When I mentioned this to colleagues at work, several of them said the same thing about their own kids. This is what Maatru is for.
+
+Maatru is a small app for parents like me who can't comfortably teach the script themselves. A kid taps Start and hears a Telugu letter spoken aloud. Four letter buttons appear on screen and they tap the one that matches the sound. After five letters the session ends and they see a "Great job" card. Later, a parent can open a separate dashboard — gated by a PIN — and read a short English paragraph about what their kid practiced that day, which letters they got right, and which ones they're still working on.
+
+My first design had the kid write the letter on paper and photograph it; Gemma 4 would compare it to the target and give feedback. I tested that capability on Day 1 before building anything around it. The moment I knew was when Gemma 4 confidently misread అ — a clean, typed vowel on a white background — as completely different characters: ౦ on cloud, ని locally. It got 1 of 20 right on Gemma 4 E4B running locally and 4 of 20 on the 31B variant via OpenRouter — both models failed even on typed reference, which should have been the easy case. The vision capability wasn't there yet for Indic scripts, at least not reliably enough to be the foundation of a literacy tool.
+
+What I ended up with uses Gemma 4 for the two things it does reliably for Telugu — generating curriculum content in plain text, and making pedagogical decisions about what a specific kid should practice next. The kid loop itself doesn't call the model. The parent dashboard does, once per visit. I'll walk through both in the 'How I Used Gemma 4' section below.
 
 ## Demo
 
-## Tradeoffs and Decisions
+<!-- Video walkthrough placeholder. To be recorded May 23 post-AWS exam. -->
 
-**Open weights as a v2 path, not a v1 claim.** Gemma 4 ships with open
-weights, which would in principle let Maatru run end-to-end on the
-user's own machine for full offline privacy. v1 does not use this:
-Day-1 evals showed local E4B latency on a 16GB M4 is unworkable for
-the kid loop (8-46s text generation, structured outputs frequently
-hit the 60s timeout). v1 ships cloud-only via OpenRouter. The
-open-weights story is the right v2 direction once consumer hardware
-catches up to E4B's compute needs, and no closed API can match that
-future flexibility — but it is not a v1 capability and the writeup
-does not claim it as one.
+## Code
 
-## What's Next
+<!-- GitHub repo link placeholder. Add at submission time. -->
+
+## How I Used Gemma 4
+
+I shipped on Gemma 4 31B Dense, accessed via OpenRouter's free tier (model string: `google/gemma-4-31b-it:free`). I'd tested the E4B variant locally first — running through Ollama on an M4 MacBook Air with 16GB of RAM — and the latency wasn't workable for a kid-facing flow. E4B took 8 to 46 seconds on generation prompts, with two hard timeouts at 60s. The 31B Dense via OpenRouter wasn't fast either (median 5.3s, p95 15.4s in a 50-request stress test), but its function-calling reliability is what made the rest of the architecture buildable: in a smoke test, it produced valid tool calls on 8 out of 8 invocations across two runs. The free tier comes with constraints — 20 requests per minute hard cap and roughly 36% upstream 502s from Google AI Studio — and the architecture was designed around them from day one.
+
+Gemma 4 runs in exactly two places. When a parent opens the dashboard, one call generates an English-language summary of what their kid did that day — practiced letters, where they were confident, where they struggled, what to expect next. When a kid taps Start, one agentic call decides what the session will contain: which letters to target, what distractors to pair them with, what feedback strings to show on correct and wrong taps, and a short paragraph explaining the pedagogical reasoning. The kid loop itself, between session start and end-card, makes zero calls to Gemma 4.
+
+The architectural decision that shapes everything else is bundling. The naive design would have called Gemma 4 once per kid interaction — one call to generate three distractors when a letter appears, another to produce feedback when the kid taps. For a 5-letter session that's roughly fourteen Gemma 4 calls, each taking 5-15 seconds on the free tier and any of which could fail with a 502. Instead, the planner makes one agentic call at session start and returns a SessionPlan that bundles everything the kid loop needs for the whole session: per-step distractors, per-step feedback variants, the session-level reasoning. The kid loop then runs deterministically from the cached plan, and Gemma 4 stays out of the critical path entirely. Roughly fourteen calls becomes one.
+
+The planner is given three read-only SQLite tools — get_recent_sessions, get_letter_accuracy, get_curriculum — and Gemma 4 calls them via function calling before proposing a plan. The output is a SessionPlan that bundles the kid loop's content and a short paragraph of reasoning that explains the pedagogical choice. That reasoning is visible to the parent on the dashboard. After session 1 (a cold start: "starting with the first five foundational vowels"), session 2 read the history and adapted on its own: "The child did well in the first session but struggled slightly with ఇ. We are reinforcing the first five vowels with medium difficulty and introducing ఊ to expand their knowledge." That second paragraph wasn't templated — it was Gemma 4 reading two sessions of attempts and making a teaching call.
+
+The planner call is wrapped in a retry-with-backoff (1s, 3s, 9s; three attempts) that handles 429s, 502s, timeouts, and malformed tool calls. If retries exhaust or the model returns something unparseable, the planner falls back to a deterministic curriculum heuristic — same SessionPlan shape, hand-written letter selection logic, no AI involved. The dashboard knows the difference: planner-driven sessions show their reasoning paragraph; fallback sessions hide it. A 45-second server-side timeout caps the whole thing so the kid never waits more than ~46 seconds from tapping Start. During verification, the fallback path fires often enough — sometimes 25-40% of the time under heavy upstream instability — that I treat it as a normal operating mode, not an exception.
