@@ -23,9 +23,10 @@ OUTPUT = ASSETS / "cover-image.png"
 TARGET_WIDTH = 1000
 TARGET_HEIGHT = 420
 TARGET_RATIO = TARGET_WIDTH / TARGET_HEIGHT  # 2.380...
-# Welcome card sits slightly above geometric center because of bottom peach
-# padding. 0.45 puts the crop center 5% above geometric center.
-VERTICAL_CENTER_BIAS = 0.45
+# Bias the vertical crop slightly below geometric center to keep the మా
+# anchor inside the top edge of the cover and push the Start button cleanly
+# off the bottom edge. 0.55 puts the crop center 5% below geometric center.
+VERTICAL_CENTER_BIAS = 0.55
 # Welcome card sits right of geometric center on the desktop layout (the
 # container max-width:480px + auto margin places it ~65% across a wide
 # viewport screenshot). 0.65 anchors the horizontal crop on the card.
