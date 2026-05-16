@@ -10,11 +10,12 @@ from that payload directly with zero further model calls during the session.
 import asyncio
 import hashlib
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from app.parent import generate_english_summary, get_today_summary
@@ -114,12 +115,25 @@ async def kid_root() -> FileResponse:
 
 @app.post("/api/pronounce")
 async def api_pronounce(req: PronounceRequest) -> Response:
+    """Synthesize TTS audio for the requested character.
+
+    Returns audio/mpeg on success. On any TTS failure (network, upstream 5xx,
+    missing API key, etc.) returns 503 with a JSON envelope so the kid loop
+    can render an inline notice without a console error or crash. ValueError
+    (unsupported language) stays as 400 — that's a client-side bug, not a
+    runtime outage.
+    """
     try:
         audio = await synthesize(req.character, language=req.language)
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=f"TTS failure: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(f"[tts] {ts} failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return JSONResponse(
+            status_code=503,
+            content={"audio_unavailable": True, "reason": type(e).__name__},
+        )
     return Response(content=audio, media_type="audio/mpeg")
 
 

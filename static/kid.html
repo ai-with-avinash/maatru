@@ -59,6 +59,13 @@
         box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.2);
       }
       .feedback { text-align: center; font-size: 1.5rem; min-height: 2rem; }
+      /* Inline notice for TTS unavailability (Phase 8). Muted red so it reads
+         as a soft warning rather than a hard error — the kid can still tap. */
+      .audio-notice {
+        text-align: center; font-size: 0.95rem; color: #b85a4a;
+        background: #fbeaea; border: 1px solid #f3c3bd;
+        border-radius: 0.5rem; padding: 0.6rem 0.85rem;
+      }
       .end-card {
         text-align: center; padding: 2.5rem 1.5rem; background: #ffffff;
         border-radius: 1rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
@@ -136,6 +143,7 @@
           <div id="target-translit" class="target-translit"></div>
         </section>
         <button id="hear-button" type="button" class="hear-button">Hear it</button>
+        <div id="audio-notice" class="audio-notice" role="status" aria-live="polite" hidden></div>
         <audio id="audio-player" hidden></audio>
         <section id="options" class="options" aria-label="Letter options"></section>
         <div id="feedback" class="feedback" aria-live="polite"></div>
@@ -169,6 +177,8 @@
       const targetGlyphEl = document.getElementById("target-glyph");
       const targetTranslitEl = document.getElementById("target-translit");
       const hearBtn = document.getElementById("hear-button");
+      const audioNoticeEl = document.getElementById("audio-notice");
+      let audioNoticeTimeoutId = null;
       const audioEl = document.getElementById("audio-player");
       const optionsEl = document.getElementById("options");
       const feedbackEl = document.getElementById("feedback");
@@ -186,6 +196,25 @@
 
       function pickRandom(arr) {
         return arr[Math.floor(Math.random() * arr.length)];
+      }
+
+      function showAudioNotice(msg) {
+        if (audioNoticeTimeoutId !== null) {
+          clearTimeout(audioNoticeTimeoutId);
+          audioNoticeTimeoutId = null;
+        }
+        audioNoticeEl.textContent = msg;
+        audioNoticeEl.hidden = false;
+        audioNoticeTimeoutId = setTimeout(hideAudioNotice, 4000);
+      }
+
+      function hideAudioNotice() {
+        if (audioNoticeTimeoutId !== null) {
+          clearTimeout(audioNoticeTimeoutId);
+          audioNoticeTimeoutId = null;
+        }
+        audioNoticeEl.hidden = true;
+        audioNoticeEl.textContent = "";
       }
 
       const LOADING_MESSAGES = [
@@ -257,6 +286,7 @@
         targetGlyphEl.textContent = step.target.character;
         targetTranslitEl.textContent = step.target.transliteration;
         feedbackEl.textContent = "";
+        hideAudioNotice();
         nextBtn.hidden = true;
         nextBtn.textContent = stepIdx + 1 === SESSION.steps.length ? "Done" : "Next";
         optionsEl.innerHTML = "";
@@ -275,6 +305,7 @@
       async function handleHear() {
         if (hearBtn.disabled) return;
         hearBtn.disabled = true;
+        hideAudioNotice();
         try {
           const step = currentStepData();
           const r = await fetch("/api/pronounce", {
@@ -282,12 +313,17 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ character: step.target.character, language: SESSION.language }),
           });
-          if (!r.ok) throw new Error("TTS HTTP " + r.status);
+          if (!r.ok) {
+            // 503: TTS unreachable. Notice is informational; options stay enabled.
+            showAudioNotice("Audio unavailable right now — try again");
+            return;
+          }
           const blob = await r.blob();
           audioEl.src = URL.createObjectURL(blob);
           await audioEl.play();
-        } catch (err) {
-          feedbackEl.textContent = "Audio failed — " + err.message;
+        } catch (_err) {
+          // Network error / aborted fetch — same UX as 503.
+          showAudioNotice("Audio unavailable right now — try again");
         } finally {
           setTimeout(() => { hearBtn.disabled = false; }, 1000);
         }
@@ -297,6 +333,7 @@
         if (stepState.locked || stepState.answered) return;
         stepState.locked = true;
         stepState.attempts += 1;
+        hideAudioNotice();
         const step = currentStepData();
         const correct = chosen === step.target.character;
         const pool = correct ? step.feedback.positive : step.feedback.retry;
